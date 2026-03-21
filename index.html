@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StreetPaws - Adopt a Street Friend</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script type="importmap">
+    {
+      "imports": {
+        "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+        "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
+        "react": "https://aistudiocdn.com/react@^19.2.0",
+        "react/": "https://aistudiocdn.com/react@^19.2.0/",
+        "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0",
+        "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+        "leaflet": "https://unpkg.com/leaflet@1.9.4/dist/leaflet-src.esm.js"
+      }
+    }
+    </script>
+    <style>
+      /* Custom scrollbar for horizontal lists */
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+      /* Leaflet z-index fix */
+      .leaflet-pane {
+        z-index: 10 !important;
+      }
+      .leaflet-top, .leaflet-bottom {
+        z-index: 20 !important;
+      }
+      
+      @media print {
+        /* Hide everything by default using visibility to avoid breaking React layout while hiding UI */
+        body {
+          background: white !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          visibility: hidden;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        /* Show only the poster */
+        #printable-poster {
+          visibility: visible;
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 100% !important;
+          height: auto !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          border: 16px solid #dc2626 !important; /* Ensure the red border prints */
+          box-shadow: none !important;
+        }
+
+        #printable-poster * {
+          visibility: visible;
+        }
+        
+        /* Explicitly hide common UI elements that might bleed through */
+        .no-print, header, footer, main, .fixed, .absolute:not(#printable-poster) {
+          display: none !important;
+        }
+
+        @page {
+          size: A4 portrait;
+          margin: 0;
+        }
+      }
+    </style>
+  <link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-stone-50">
+    <div id="root"></div>
+    <script type="module" src="index.tsx"></script>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

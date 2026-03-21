@@ -1,0 +1,80 @@
+{
+  "entities": {
+    "Pet": {
+      "title": "Pet",
+      "description": "A stray animal listed for adoption or help.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Name of the animal." },
+        "type": { "type": "string", "enum": ["Dog", "Cat", "Bird", "Rat", "Other"], "description": "Type of animal." },
+        "age": { "type": "string", "description": "Approximate age." },
+        "location": { "type": "string", "description": "Where the animal was spotted." },
+        "description": { "type": "string", "description": "Heartwarming story or description." },
+        "imageUrl": { "type": "string", "description": "Photo of the animal (URL or base64)." },
+        "contactNumber": { "type": "string", "description": "WhatsApp or phone number." },
+        "contactName": { "type": "string", "description": "Name of the reporter." },
+        "postedAt": { "type": "string", "format": "date-time", "description": "When the listing was created." },
+        "urgency": { "type": "string", "enum": ["Low", "Medium", "High", "Critical"], "description": "Urgency level." },
+        "status": { "type": "string", "enum": ["Available", "Adopted", "Fostered"], "description": "Current status." },
+        "traits": { "type": "string", "description": "Personality traits." },
+        "cheers": { "type": "integer", "description": "Number of cheers from the community." },
+        "authorUid": { "type": "string", "description": "UID of the user who posted this." },
+        "comments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "text": { "type": "string" },
+              "author": { "type": "string" },
+              "authorUid": { "type": "string" },
+              "createdAt": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      },
+      "required": ["name", "type", "location", "imageUrl", "authorUid"]
+    },
+    "Story": {
+      "title": "Story",
+      "description": "A success story or update about a pet.",
+      "type": "object",
+      "properties": {
+        "petId": { "type": "string", "description": "ID of the pet this story is about." },
+        "petName": { "type": "string", "description": "Name of the pet." },
+        "content": { "type": "string", "description": "The story content." },
+        "imageUrl": { "type": "string", "description": "Photo for the story (URL or base64)." },
+        "authorUid": { "type": "string", "description": "UID of the author." },
+        "authorName": { "type": "string", "description": "Name of the author." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the story was posted." }
+      },
+      "required": ["content", "authorUid", "createdAt"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile information.",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "photoURL": { "type": "string", "format": "uri" },
+        "role": { "type": "string", "enum": ["user", "admin"] }
+      },
+      "required": ["displayName", "email"]
+    }
+  },
+  "firestore": {
+    "/pets": {
+      "schema": "Pet",
+      "description": "Collection of stray animal listings."
+    },
+    "/stories": {
+      "schema": "Story",
+      "description": "Collection of community success stories."
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents."
+    }
+  }
+}
