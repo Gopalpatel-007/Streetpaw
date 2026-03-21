@@ -18,10 +18,14 @@ import {
   query,
   orderBy,
   where,
+  limit,
+  arrayUnion,
+  increment,
   Timestamp,
   onAuthStateChanged
 } from "./firebase";
 import { AuthProvider, useAuth } from "./auth";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Camera,
   Upload,
@@ -50,6 +54,12 @@ import {
   LogOut,
   LogIn,
   BookOpen,
+  Stethoscope,
+  MessageSquare,
+  Eraser,
+  ExternalLink,
+  Linkedin,
+  Globe,
 } from "lucide-react";
 
 // --- Types & Constants ---
@@ -112,24 +122,32 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
   render() {
     if (this.state.hasError) {
+      const isQuotaError = this.state.errorInfo.includes("Quota limit exceeded") || this.state.errorInfo.includes("Quota exceeded");
+      
       return (
         <div className="min-h-screen flex items-center justify-center bg-stone-50 p-4">
           <div className="bg-white p-8 rounded-[2.5rem] shadow-2xl max-w-md w-full text-center border-4 border-red-100">
             <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
-              <X size={40} />
+              {isQuotaError ? <Moon size={40} /> : <X size={40} />}
             </div>
-            <h2 className="text-2xl font-black mb-4">Something went wrong</h2>
+            <h2 className="text-2xl font-black mb-4">
+              {isQuotaError ? "Daily Limit Reached" : "Something went wrong"}
+            </h2>
             <p className="text-stone-600 mb-6 text-sm leading-relaxed">
-              We encountered an unexpected error. It might be a connection issue or a permission problem.
+              {isQuotaError 
+                ? "Our community is growing fast! We've reached our daily free limit for database lookups. Please check back tomorrow morning when the quota resets."
+                : "We encountered an unexpected error. It might be a connection issue or a permission problem."}
             </p>
-            <div className="bg-stone-100 p-4 rounded-2xl text-left mb-6 overflow-auto max-h-40">
-               <code className="text-[10px] text-stone-500 break-all">{this.state.errorInfo}</code>
-            </div>
+            {!isQuotaError && (
+              <div className="bg-stone-100 p-4 rounded-2xl text-left mb-6 overflow-auto max-h-40">
+                 <code className="text-[10px] text-stone-500 break-all">{this.state.errorInfo}</code>
+              </div>
+            )}
             <button 
               onClick={() => window.location.reload()}
               className="w-full bg-stone-900 text-white py-4 rounded-3xl font-black hover:bg-stone-800 transition-all"
             >
-              Reload Application
+              {isQuotaError ? "Try Again" : "Reload Application"}
             </button>
           </div>
         </div>
@@ -284,7 +302,7 @@ const urgencyScore = (u: UrgencyLevel) => {
 
 function App() {
   const { user, loading: authLoading, isAdmin } = useAuth();
-  const [pets, setPets] = useState<Pet[]>([]);
+  const [pets, setPets] = useState<Pet[]>(INITIAL_PETS);
   const [stories, setStories] = useState<Story[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isStoryModalOpen, setIsStoryModalOpen] = useState(false);
@@ -299,6 +317,8 @@ function App() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [quoteIndex, setQuoteIndex] = useState(0);
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [quotaExceeded, setQuotaExceeded] = useState(false);
 
   // Sync dark mode class
   useEffect(() => {
@@ -325,26 +345,51 @@ function App() {
   }, [isModalOpen, posterPet, isStoryModalOpen]);
 
   // Firestore Listeners
-  useEffect(() => {
-    const q = query(collection(db, "pets"), orderBy("postedAt", "desc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+  const fetchPets = async () => {
+    console.log("Fetching pets...");
+    try {
+      const q = query(collection(db, "pets"), orderBy("postedAt", "desc"), limit(20));
+      const snapshot = await getDocs(q);
       const petsData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Pet));
-      setPets(petsData);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, "pets");
-    });
-    return () => unsubscribe();
+      setPets(petsData.length > 0 ? petsData : INITIAL_PETS);
+      setQuotaExceeded(false);
+    } catch (error: any) {
+      if (error.message?.includes("Quota") || error.code === "resource-exhausted") {
+        console.warn("Firestore Quota Exceeded. Falling back to sample data.");
+        setPets(INITIAL_PETS);
+        setQuotaExceeded(true);
+        // Optimization: Automatically hide the warning banner after 10 seconds.
+        setTimeout(() => setQuotaExceeded(false), 10000);
+      } else {
+        handleFirestoreError(error, OperationType.LIST, "pets");
+      }
+    }
+  };
+
+  useEffect(() => {
+    fetchPets();
   }, []);
 
   useEffect(() => {
-    const q = query(collection(db, "stories"), orderBy("createdAt", "desc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const storiesData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Story));
-      setStories(storiesData);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, "stories");
-    });
-    return () => unsubscribe();
+    const fetchStories = async () => {
+      try {
+        const q = query(collection(db, "stories"), orderBy("createdAt", "desc"), limit(10));
+        const snapshot = await getDocs(q);
+        const storiesData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Story));
+        setStories(storiesData);
+      } catch (error: any) {
+        if (error.message?.includes("Quota") || error.code === "resource-exhausted") {
+          console.warn("Stories fetch failed due to quota.");
+          setStories([]);
+          setQuotaExceeded(true);
+          // Optimization: Automatically hide the warning banner after 10 seconds.
+          setTimeout(() => setQuotaExceeded(false), 10000);
+        } else {
+          handleFirestoreError(error, OperationType.LIST, "stories");
+        }
+      }
+    };
+    fetchStories();
   }, []);
 
   const addToast = (message: string, type: Toast["type"] = "info") => {
@@ -385,12 +430,12 @@ function App() {
     };
     try {
       const petRef = doc(db, "pets", petId);
-      const petSnap = await getDoc(petRef);
-      if (petSnap.exists()) {
-        const currentComments = petSnap.data().comments || [];
-        await updateDoc(petRef, { comments: [...currentComments, newComment] });
-        addToast("Note added!", "success");
-      }
+      // Optimization: Using arrayUnion() instead of fetching the document first.
+      // This saves 1 read (getDoc) per comment added.
+      await updateDoc(petRef, { 
+        comments: arrayUnion(newComment) 
+      });
+      addToast("Note added!", "success");
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `pets/${petId}`);
     }
@@ -399,10 +444,11 @@ function App() {
   const handleCheer = async (petId: string) => {
     try {
       const petRef = doc(db, "pets", petId);
-      const petSnap = await getDoc(petRef);
-      if (petSnap.exists()) {
-        await updateDoc(petRef, { cheers: (petSnap.data().cheers || 0) + 1 });
-      }
+      // Optimization: Using increment() instead of fetching the document first.
+      // This saves 1 read (getDoc) per cheer and is also atomic (safe from race conditions).
+      await updateDoc(petRef, { 
+        cheers: increment(1) 
+      });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `pets/${petId}`);
     }
@@ -485,8 +531,16 @@ function App() {
 
   const filteredPets = pets.filter((pet) => {
     if (selectedType === "Stories") return false;
-    const matchesType = selectedType === "All" || (selectedType === "Favorites" && favorites.includes(pet.id)) || (selectedType === "Urgent" && (pet.urgency === "High" || pet.urgency === "Critical")) || pet.type === selectedType;
-    return matchesType && (pet.name.toLowerCase().includes(searchTerm.toLowerCase()) || pet.location.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesType = selectedType === "All" || 
+                       (selectedType === "Favorites" && favorites.includes(pet.id)) || 
+                       (selectedType === "Urgent" && (pet.urgency === "High" || pet.urgency === "Critical")) || 
+                       pet.type === selectedType;
+    
+    const name = pet.name || "";
+    const location = pet.location || "";
+    const search = searchTerm.toLowerCase();
+    
+    return matchesType && (name.toLowerCase().includes(search) || location.toLowerCase().includes(search));
   });
 
   const sortedPets = [...filteredPets].sort((a, b) => {
@@ -499,8 +553,22 @@ function App() {
   });
 
   return (
-    <div className={`min-h-screen font-sans transition-colors duration-300 ${darkMode ? "bg-stone-900 text-stone-100" : "bg-stone-50 text-stone-800"}`}>
+    <div className={`min-h-screen relative font-sans transition-colors duration-300 ${darkMode ? "bg-stone-900 text-stone-100" : "bg-stone-50 text-stone-800"}`}>
       
+      {/* Quota Warning Banner */}
+      <AnimatePresence>
+        {quotaExceeded && (
+          <motion.div 
+            initial={{ y: -50, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -50, opacity: 0 }}
+            className="bg-amber-500 text-stone-900 px-4 py-2 text-center text-[10px] font-black uppercase tracking-widest sticky top-0 z-[60] shadow-lg"
+          >
+            ⚠️ Daily Community Limit Reached - Showing Offline Sample Data
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Toasts */}
       <div className="fixed top-20 right-4 z-[100] space-y-2 pointer-events-none">
         {toasts.map(toast => (
@@ -664,7 +732,7 @@ function App() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
               {stories.map(story => (
-                <div key={story.id} className={`p-5 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] border shadow-xl transition-all hover:scale-[1.02] ${darkMode ? "bg-stone-800 border-stone-700" : "bg-white border-stone-100"}`}>
+                <div key={story.id} className={`p-4 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] border shadow-xl transition-all hover:scale-[1.02] ${darkMode ? "bg-stone-800 border-stone-700" : "bg-white border-stone-100"}`}>
                   {story.imageUrl && <img src={story.imageUrl} className="w-full aspect-video object-cover rounded-2xl sm:rounded-3xl mb-4 sm:mb-6 shadow-lg" alt="" />}
                   <p className="text-base sm:text-lg font-medium italic mb-4 sm:mb-6 leading-relaxed">"{story.content}"</p>
                   <div className="flex items-center justify-between gap-3">
@@ -726,36 +794,125 @@ function App() {
           </div>
         )}
         
-        {sortedPets.length === 0 && (
+        {selectedType !== "Stories" && sortedPets.length === 0 && (
             <div className={`py-32 text-center rounded-[3rem] border-4 border-dashed animate-in fade-in duration-500 ${darkMode ? "border-stone-800 text-stone-600" : "border-stone-200 text-stone-400"}`}>
               <div className="mb-6 flex justify-center"><ImageIcon size={64} className="opacity-20" /></div>
               <p className="text-xl font-black">No matching friends found.</p>
-              <p className="text-sm opacity-60 mt-2">Try adjusting your filters or search term.</p>
+              <p className="text-sm opacity-60 mt-2 mb-8">Try adjusting your filters or search term.</p>
+              {pets.length === 0 ? (
+                <button 
+                  onClick={() => {
+                    INITIAL_PETS.forEach(async (p) => {
+                      try {
+                        await addDoc(collection(db, "pets"), {
+                          ...p,
+                          postedAt: Timestamp.now(),
+                          authorUid: user?.uid || "system"
+                        });
+                      } catch (e) {
+                        console.error("Error adding sample pet:", e);
+                      }
+                    });
+                    addToast("Sample pets added!", "success");
+                  }}
+                  className="bg-stone-900 dark:bg-amber-500 text-white dark:text-stone-900 px-8 py-4 rounded-3xl font-black text-sm hover:scale-105 transition-all active:scale-95 shadow-xl"
+                >
+                  Load Sample Pets
+                </button>
+              ) : (
+                (selectedType !== "All" || searchTerm !== "") && (
+                  <button 
+                    onClick={() => { setSelectedType("All"); setSearchTerm(""); }}
+                    className="bg-amber-500 text-white px-8 py-4 rounded-3xl font-black text-sm hover:scale-105 transition-all active:scale-95 shadow-xl shadow-amber-500/20"
+                  >
+                    Clear All Filters
+                  </button>
+                )
+              )}
             </div>
         )}
       </main>
 
       {/* Footer */}
-      <footer className={`mt-20 py-16 border-t transition-colors no-print ${darkMode ? "border-stone-800 bg-stone-900/50" : "border-stone-200 bg-white"}`}>
-        <div className="max-w-7xl mx-auto px-4 flex flex-col items-center gap-8 text-center">
-          <div className="flex items-center gap-2 font-black text-amber-500 text-2xl">
-            <PawPrint size={28} /> StreetPaws
-          </div>
-          <p className="text-base opacity-60 max-w-lg leading-relaxed font-medium">
-            Connecting kind hearts with the strays who need them most. Every animal deserves a chance at a warm home.
-          </p>
-          <div className={`p-8 rounded-[2.5rem] border ${darkMode ? "border-stone-700 bg-stone-800" : "border-amber-500/30 bg-amber-50" } max-w-md w-full shadow-inner`}>
-            <p className="text-xs font-black text-amber-600 uppercase tracking-[0.3em] mb-3">Project Credits</p>
-            <p className={`text-xl font-black mb-2 flex items-center justify-center gap-2 ${darkMode ? "text-white" : "text-stone-900"}`}>
-              Project developed <Heart size={20} className="text-red-500 fill-red-500" /> Gopal Patel
-            </p>
-            <p className="text-xs opacity-60 mb-6 font-medium italic">"Building digital solutions with a human touch."</p>
-            <div className="space-y-4">
-              <span className="text-[10px] font-black text-stone-400 dark:text-stone-500 uppercase tracking-[0.2em] block">Available for Freelance Projects</span>
-              <a href="mailto:patelgopal563@gmail.com" className="inline-block bg-amber-500 text-stone-900 px-8 py-3.5 rounded-3xl text-sm font-black hover:bg-amber-600 transition-all active:scale-95 shadow-lg">patelgopal563@gmail.com</a>
+      <footer className={`mt-32 py-24 border-t transition-colors no-print ${darkMode ? "border-stone-800 bg-stone-900/50" : "border-stone-200 bg-white"}`}>
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-start">
+            <div className="space-y-8">
+              <div className="flex items-center gap-3 font-black text-amber-500 text-3xl">
+                <div className="w-12 h-12 bg-amber-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-amber-500/20">
+                  <PawPrint size={28} />
+                </div>
+                StreetPaws
+              </div>
+              <p className="text-lg opacity-60 max-w-md leading-relaxed font-medium">
+                Connecting kind hearts with the strays who need them most. Every animal deserves a chance at a warm home and a loving story.
+              </p>
+              <div className="flex gap-4">
+                {[
+                  { icon: MessageSquare, label: "Email", href: "mailto:patelgopal563@gmail.com" },
+                  { icon: MessageCircle, label: "WhatsApp", href: "https://wa.me/917905013678" },
+                  { icon: Globe, label: "Portfolio", href: "https://gopalpatel.vercel.app/" },
+                  { icon: Linkedin, label: "LinkedIn", href: "https://www.linkedin.com/in/gopal-patel2004?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=android_app" }
+                ].map((social, i) => (
+                  <a 
+                    key={i}
+                    href={social.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`p-3 rounded-2xl border transition-all hover:scale-110 active:scale-95 ${darkMode ? "border-stone-700 bg-stone-800 hover:border-amber-500 text-stone-400" : "border-stone-200 bg-stone-50 hover:border-amber-500 text-stone-600"}`}
+                    aria-label={social.label}
+                  >
+                    <social.icon size={20} />
+                  </a>
+                ))}
+              </div>
+            </div>
+
+            <div className={`relative p-8 sm:p-10 rounded-[3rem] border overflow-hidden group ${darkMode ? "border-stone-700 bg-stone-800" : "border-amber-500/30 bg-amber-50" } shadow-2xl`}>
+              <div className="absolute top-0 right-0 -mt-8 -mr-8 w-32 h-32 bg-amber-500/10 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-1000"></div>
+              <div className="relative z-10">
+                <p className="text-[10px] font-black text-amber-600 uppercase tracking-[0.4em] mb-6">Project Credits</p>
+                <div className="space-y-6">
+                  <div>
+                    <h4 className={`text-2xl sm:text-3xl font-black mb-2 flex items-center gap-3 ${darkMode ? "text-white" : "text-stone-900"}`}>
+                      Developed by Gopal Patel
+                    </h4>
+                    <p className="text-sm opacity-60 font-medium italic leading-relaxed">
+                      "Building digital solutions that bridge the gap between technology and human compassion."
+                    </p>
+                  </div>
+                  
+                  <div className="h-px w-full bg-stone-200 dark:bg-stone-700"></div>
+
+                  <div className="flex flex-col sm:flex-row items-center gap-6">
+                    <div className="flex-1 space-y-2 text-center sm:text-left">
+                      <span className="text-[9px] font-black text-stone-400 dark:text-stone-500 uppercase tracking-[0.2em] block">Professional Inquiry</span>
+                      <a href="mailto:patelgopal563@gmail.com" className={`text-lg font-black hover:text-amber-500 transition-colors ${darkMode ? "text-white" : "text-stone-900"}`}>
+                        patelgopal563@gmail.com
+                      </a>
+                    </div>
+                    <a 
+                      href="https://gopalpatel.vercel.app/" 
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-stone-900 dark:bg-amber-500 text-white dark:text-stone-900 px-8 py-4 rounded-3xl text-sm font-black hover:scale-105 transition-all active:scale-95 shadow-xl flex items-center gap-2 whitespace-nowrap"
+                    >
+                      Get in Touch <ExternalLink size={16} />
+                    </a>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-          <div className="text-[10px] font-bold opacity-30 uppercase tracking-[0.4em]">© 20226 StreetPaws Community</div>
+          
+          <div className="mt-24 pt-8 border-t border-stone-200 dark:border-stone-800 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div className="text-[10px] font-bold opacity-30 uppercase tracking-[0.4em]">© 2026 StreetPaws Community</div>
+            <div className="flex gap-8 text-[10px] font-bold opacity-40 uppercase tracking-[0.2em]">
+              <a href="#" className="hover:text-amber-500 transition-colors">Privacy</a>
+              <a href="#" className="hover:text-amber-500 transition-colors">Terms</a>
+              <a href="#" className="hover:text-amber-500 transition-colors">Contact</a>
+            </div>
+          </div>
         </div>
       </footer>
 
@@ -787,6 +944,21 @@ function App() {
           initialData={editingStory}
         />
       )}
+
+      <ChatAssistant 
+        isOpen={isChatOpen} 
+        onClose={() => setIsChatOpen(false)} 
+        darkMode={darkMode} 
+        pets={pets}
+      />
+
+      <button 
+        onClick={() => setIsChatOpen(true)}
+        className={`fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-[60] w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-amber-500 text-stone-900 flex items-center justify-center shadow-2xl hover:scale-110 active:scale-95 transition-all group no-print ${isChatOpen ? 'hidden' : ''}`}
+      >
+        <Stethoscope size={24} className="sm:w-7 sm:h-7 group-hover:rotate-12 transition-transform" />
+        <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] sm:text-[10px] font-black px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full animate-bounce">AI</div>
+      </button>
     </div>
   );
 }
@@ -1328,7 +1500,7 @@ const PetCard: React.FC<{
         </button>
       </div>
 
-      <div className="p-6 flex flex-col flex-1">
+      <div className="p-4 sm:p-6 flex flex-col flex-1">
         <div className="flex justify-between items-start mb-1">
            <div className="flex items-center gap-2 truncate">
              <div className="w-9 h-9 rounded-full bg-amber-500 flex items-center justify-center text-xs font-black text-white overflow-hidden shrink-0">
@@ -1428,6 +1600,202 @@ const PetCard: React.FC<{
         </div>
       </div>
     </div>
+  );
+};
+
+// --- AI Chat Assistant Component ---
+
+const ChatAssistant: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  darkMode: boolean;
+  pets: Pet[];
+}> = ({ isOpen, onClose, darkMode, pets }) => {
+  const [messages, setMessages] = useState<{ role: "user" | "ai"; text: string }[]>(() => {
+    const saved = localStorage.getItem("streetpaws_chat_history");
+    return saved ? JSON.parse(saved) : [
+      { role: "ai", text: "Hi! I'm Veteran AI, your AI pet assistant. How can I help you today? I can suggest pets for adoption, give care tips, or answer questions about our community." }
+    ];
+  });
+  const [input, setInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem("streetpaws_chat_history", JSON.stringify(messages));
+  }, [messages]);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, isTyping]);
+
+  const handleSend = async () => {
+    if (!input.trim() || isTyping) return;
+
+    const userMsg = input.trim();
+    setInput("");
+    setMessages(prev => [...prev, { role: "user", text: userMsg }]);
+    setIsTyping(true);
+
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const petContext = pets.map(p => `${p.name} (${p.type}) in ${p.location}: ${p.description}`).join("\n");
+      
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `
+          You are Veteran AI, a helpful and friendly AI assistant for StreetPaws, a stray animal rescue community.
+          
+          Context about currently available pets:
+          ${petContext}
+          
+          User Question: ${userMsg}
+          
+          Guidelines:
+          1. If the user asks for pet suggestions, recommend specific pets from the context provided.
+          2. If the user asks for care tips, provide practical advice for dogs, cats, or other common pets.
+          3. Be empathetic, encouraging, and focus on animal welfare.
+          4. Keep responses concise (under 150 words).
+          5. If you don't know something about a specific pet, suggest they contact the reporter listed in the app.
+        `,
+      });
+
+      const aiText = response.text || "I'm sorry, I'm having a bit of trouble thinking right now. Could you try again?";
+      setMessages(prev => [...prev, { role: "ai", text: aiText }]);
+    } catch (err) {
+      console.error("Chat error:", err);
+      setMessages(prev => [...prev, { role: "ai", text: "Oops! My connection to the pet-verse was interrupted. Please try again later." }]);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  const clearChat = () => {
+    if (confirm("Clear chat history?")) {
+      setMessages([{ role: "ai", text: "Chat history cleared. How else can I help you?" }]);
+      localStorage.removeItem("streetpaws_chat_history");
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div 
+          initial={{ opacity: 0, y: 100, scale: 0.9 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 100, scale: 0.9 }}
+          className="fixed inset-0 sm:inset-auto sm:bottom-6 sm:right-6 z-[70] w-full sm:w-[450px] h-[100dvh] sm:h-[650px] sm:max-h-[85vh] flex flex-col sm:rounded-[3rem] shadow-2xl border-t-4 sm:border-8 border-amber-500 overflow-hidden no-print"
+        >
+          {/* Header */}
+          <div className="bg-amber-500 p-6 sm:p-8 flex justify-between items-center shrink-0 shadow-lg relative z-10">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-amber-500 shadow-inner">
+                <Stethoscope size={28} />
+              </div>
+              <div>
+                <h3 className="font-black text-stone-900 text-lg leading-none">Veteran AI</h3>
+                <div className="flex items-center gap-2 mt-1.5">
+                  <span className="w-2 h-2 bg-green-600 rounded-full animate-pulse"></span>
+                  <p className="text-[10px] font-black text-stone-900/60 uppercase tracking-widest">Active Assistant</p>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={clearChat}
+                title="Clear Chat"
+                className="p-2.5 hover:bg-black/10 rounded-xl transition-colors text-stone-900"
+              >
+                <Eraser size={20} />
+              </button>
+              <button 
+                onClick={onClose} 
+                className="p-2.5 hover:bg-black/10 rounded-xl transition-colors text-stone-900"
+              >
+                <X size={24} />
+              </button>
+            </div>
+          </div>
+
+          {/* Messages */}
+          <div 
+            ref={scrollRef}
+            className={`flex-1 overflow-y-auto p-6 sm:p-8 space-y-6 no-scrollbar ${darkMode ? "bg-stone-900" : "bg-stone-50"}`}
+          >
+            {messages.map((m, i) => (
+              <motion.div 
+                initial={{ opacity: 0, x: m.role === "user" ? 20 : -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                key={i} 
+                className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
+              >
+                <div className={`max-w-[85%] p-5 rounded-[2rem] text-sm font-bold leading-relaxed shadow-md ${
+                  m.role === "user" 
+                    ? "bg-amber-500 text-stone-900 rounded-tr-none" 
+                    : darkMode 
+                      ? "bg-stone-800 text-stone-100 rounded-tl-none border border-stone-700" 
+                      : "bg-white text-stone-800 rounded-tl-none border border-stone-100"
+                }`}>
+                  {m.text}
+                </div>
+              </motion.div>
+            ))}
+            {isTyping && (
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex justify-start"
+              >
+                <div className={`p-5 rounded-[2rem] rounded-tl-none flex gap-1.5 ${darkMode ? "bg-stone-800 border border-stone-700" : "bg-white border border-stone-100"}`}>
+                  <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce"></div>
+                  <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce [animation-delay:0.2s]"></div>
+                  <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce [animation-delay:0.4s]"></div>
+                </div>
+              </motion.div>
+            )}
+          </div>
+
+          {/* Input Area */}
+          <div className={`p-4 sm:p-8 border-t shrink-0 ${darkMode ? "bg-stone-900 border-stone-800" : "bg-white border-stone-100"}`}>
+            <div className="flex items-center gap-2 mb-4 sm:hidden">
+               <button 
+                onClick={onClose}
+                className="flex-1 py-2 rounded-xl bg-stone-200 dark:bg-stone-800 text-stone-600 dark:text-stone-400 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+               >
+                 <X size={14} /> Close Assistant
+               </button>
+               <button 
+                onClick={clearChat}
+                className="p-2 rounded-xl bg-stone-200 dark:bg-stone-800 text-stone-600 dark:text-stone-400"
+               >
+                 <Eraser size={14} />
+               </button>
+            </div>
+            <div className="flex gap-3 bg-stone-100 dark:bg-stone-800 p-2 rounded-[2rem] border-2 border-transparent focus-within:border-amber-500 transition-all">
+              <input 
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyPress={e => e.key === 'Enter' && handleSend()}
+                placeholder="Ask about pets..."
+                className={`flex-1 px-4 py-2 bg-transparent text-sm font-bold outline-none ${
+                  darkMode ? "text-white placeholder-stone-600" : "text-stone-900 placeholder-stone-400"
+                }`}
+              />
+              <button 
+                onClick={handleSend}
+                disabled={!input.trim() || isTyping}
+                className="w-12 h-12 bg-amber-500 text-stone-900 rounded-2xl flex items-center justify-center hover:bg-amber-600 active:scale-90 transition-all disabled:opacity-50 shadow-lg shadow-amber-500/20"
+              >
+                <Send size={20} />
+              </button>
+            </div>
+            <p className="hidden sm:block text-[9px] text-center mt-4 font-bold opacity-30 uppercase tracking-widest">Powered by Gemini AI • StreetPaws Companion</p>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };
 

@@ -18,28 +18,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        // Check if user exists in Firestore, if not create profile
-        const userRef = doc(db, 'users', currentUser.uid);
-        const userSnap = await getDoc(userRef);
-        
-        if (!userSnap.exists()) {
-          const newUser = {
-            displayName: currentUser.displayName || 'Anonymous',
-            email: currentUser.email || '',
-            photoURL: currentUser.photoURL || '',
-            role: 'user'
-          };
-          await setDoc(userRef, newUser);
-          setIsAdmin(false);
+      try {
+        setUser(currentUser);
+        if (currentUser) {
+          // Check if user exists in Firestore, if not create profile
+          const userRef = doc(db, 'users', currentUser.uid);
+          
+          try {
+            const userSnap = await getDoc(userRef);
+            
+            if (!userSnap.exists()) {
+              const newUser = {
+                displayName: currentUser.displayName || 'Anonymous',
+                email: currentUser.email || '',
+                photoURL: currentUser.photoURL || '',
+                role: 'user'
+              };
+              await setDoc(userRef, newUser);
+              setIsAdmin(false);
+            } else {
+              setIsAdmin(userSnap.data().role === 'admin' || currentUser.email === 'gopalpatelpatel693@gmail.com');
+            }
+          } catch (dbError: any) {
+            // Optimization: If Firestore is blocked by quota, still allow the user to be "logged in"
+            // based on Firebase Auth, but default to non-admin role.
+            console.warn("Firestore access failed during auth check (likely quota). Defaulting to guest profile.");
+            setIsAdmin(currentUser.email === 'gopalpatelpatel693@gmail.com'); // Hardcoded admin check as fallback
+          }
         } else {
-          setIsAdmin(userSnap.data().role === 'admin' || currentUser.email === 'gopalpatelpatel693@gmail.com');
+          setIsAdmin(false);
         }
-      } else {
-        setIsAdmin(false);
+      } catch (error) {
+        console.error("Auth state change error:", error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();
