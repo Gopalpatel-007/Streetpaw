@@ -298,6 +298,7 @@ function App() {
   const [posterPet, setPosterPet] = useState<Pet | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [quoteIndex, setQuoteIndex] = useState(0);
+  const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
 
   // Sync dark mode class
   useEffect(() => {
@@ -527,20 +528,40 @@ function App() {
           </button>
           {user ? (
             <div className="flex items-center gap-2 sm:gap-4">
-              <div className="flex items-center gap-2 bg-stone-100 dark:bg-stone-800 px-3 py-1.5 rounded-full">
-                {user.photoURL ? (
-                  <img src={user.photoURL} alt="" className="w-6 h-6 rounded-full" />
-                ) : (
-                  <div className="w-6 h-6 rounded-full bg-amber-500 flex items-center justify-center text-[10px] font-black text-white">
-                    {user.displayName?.charAt(0) || <User size={12} />}
-                  </div>
+              <div className="relative">
+                <button 
+                  onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
+                  className="flex items-center justify-center w-10 h-10 rounded-full border-2 border-amber-500 overflow-hidden shrink-0 active:scale-90 transition-transform shadow-lg"
+                >
+                  {user.photoURL ? (
+                    <img src={user.photoURL} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-amber-500 flex items-center justify-center text-xs font-black text-white">
+                      {user.displayName?.charAt(0) || <User size={16} />}
+                    </div>
+                  )}
+                </button>
+                
+                {isUserDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setIsUserDropdownOpen(false)}></div>
+                    <div className={`absolute top-full right-0 mt-3 w-48 rounded-2xl shadow-2xl border p-2 animate-in fade-in zoom-in-95 duration-200 z-50 ${darkMode ? "bg-stone-800 border-stone-700" : "bg-white border-stone-100"}`}>
+                      <div className="px-3 py-2 border-b border-stone-100 dark:border-stone-700 mb-1">
+                        <p className="text-xs font-black truncate">{user.displayName}</p>
+                        <p className="text-[10px] opacity-50 truncate">{user.email}</p>
+                      </div>
+                      <button 
+                        onClick={() => { logout(); setIsUserDropdownOpen(false); }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold text-red-500 hover:bg-red-500/10 transition-colors"
+                      >
+                        <LogOut size={16} /> Logout
+                      </button>
+                    </div>
+                  </>
                 )}
-                <span className="text-xs font-bold truncate max-w-[80px] hidden xs:inline">{user.displayName}</span>
               </div>
-              <button onClick={logout} className="p-2 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:text-red-500 transition-colors">
-                <LogOut size={20} />
-              </button>
-              <button onClick={() => {setEditingPet(null); setIsModalOpen(true);}} className="bg-amber-600 text-white px-5 py-2.5 rounded-3xl font-bold text-sm hover:bg-amber-700 transition-all flex items-center gap-2 shadow-lg active:scale-95">
+
+              <button onClick={() => {setEditingPet(null); setIsModalOpen(true);}} className="bg-amber-600 text-white px-4 py-2 sm:px-5 sm:py-2.5 rounded-3xl font-bold text-xs sm:text-sm hover:bg-amber-700 transition-all flex items-center gap-2 shadow-lg active:scale-95">
                 <Plus size={18} />
                 <span className="hidden xs:inline">List stray</span>
               </button>
@@ -648,7 +669,7 @@ function App() {
                   <p className="text-base sm:text-lg font-medium italic mb-4 sm:mb-6 leading-relaxed">"{story.content}"</p>
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 bg-amber-500 rounded-full flex items-center justify-center text-white font-black text-xs overflow-hidden">
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 bg-amber-500 rounded-full flex items-center justify-center text-white font-black text-xs overflow-hidden shrink-0">
                         {story.authorPhotoUrl ? (
                           <img src={story.authorPhotoUrl} alt="" className="w-full h-full object-cover" />
                         ) : (
@@ -1337,7 +1358,7 @@ const PetCard: React.FC<{
 
         <div className="mt-auto space-y-4">
           <div className="flex items-center gap-3">
-             <div className="w-9 h-9 rounded-full bg-amber-500 text-white flex items-center justify-center font-black text-xs overflow-hidden">
+             <div className="w-9 h-9 rounded-full bg-amber-500 text-white flex items-center justify-center font-black text-xs overflow-hidden shrink-0">
                 {pet.authorPhotoUrl ? (
                   <img src={pet.authorPhotoUrl} alt="" className="w-full h-full object-cover" />
                 ) : (
