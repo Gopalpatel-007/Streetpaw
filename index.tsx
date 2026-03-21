@@ -285,6 +285,7 @@ function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isStoryModalOpen, setIsStoryModalOpen] = useState(false);
   const [editingPet, setEditingPet] = useState<Pet | null>(null);
+  const [editingStory, setEditingStory] = useState<Story | null>(null);
   const [selectedType, setSelectedType] = useState<FilterType>("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("Newest");
@@ -440,16 +441,33 @@ function App() {
   const handleSaveStory = async (storyData: Partial<Story>) => {
     if (!user) return;
     try {
-      await addDoc(collection(db, "stories"), {
-        ...storyData,
-        authorUid: user.uid,
-        authorName: user.displayName || "Anonymous",
-        createdAt: Timestamp.now()
-      });
-      addToast("Story shared with the community!", "success");
+      if (editingStory) {
+        await updateDoc(doc(db, "stories", editingStory.id), { ...storyData });
+        addToast("Story updated!", "success");
+      } else {
+        await addDoc(collection(db, "stories"), {
+          ...storyData,
+          authorUid: user.uid,
+          authorName: user.displayName || "Anonymous",
+          createdAt: Timestamp.now()
+        });
+        addToast("Story shared with the community!", "success");
+      }
       setIsStoryModalOpen(false);
+      setEditingStory(null);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, "stories");
+      handleFirestoreError(error, OperationType.WRITE, "stories");
+    }
+  };
+
+  const handleDeleteStory = async (storyId: string) => {
+    if (confirm("Are you sure you want to delete this story?")) {
+      try {
+        await deleteDoc(doc(db, "stories", storyId));
+        addToast("Story deleted.", "info");
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, `stories/${storyId}`);
+      }
     }
   };
 
@@ -611,14 +629,32 @@ function App() {
                 <div key={story.id} className={`p-5 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] border shadow-xl transition-all hover:scale-[1.02] ${darkMode ? "bg-stone-800 border-stone-700" : "bg-white border-stone-100"}`}>
                   {story.imageUrl && <img src={story.imageUrl} className="w-full aspect-video object-cover rounded-2xl sm:rounded-3xl mb-4 sm:mb-6 shadow-lg" alt="" />}
                   <p className="text-base sm:text-lg font-medium italic mb-4 sm:mb-6 leading-relaxed">"{story.content}"</p>
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 sm:w-10 sm:h-10 bg-amber-500 rounded-full flex items-center justify-center text-white font-black text-xs sm:text-sm">
-                      {story.authorName.charAt(0)}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 bg-amber-500 rounded-full flex items-center justify-center text-white font-black text-xs sm:text-sm">
+                        {story.authorName.charAt(0)}
+                      </div>
+                      <div>
+                        <p className="text-xs sm:text-sm font-black">{story.authorName}</p>
+                        <p className="text-[9px] sm:text-[10px] uppercase tracking-widest opacity-40">Community Member</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-xs sm:text-sm font-black">{story.authorName}</p>
-                      <p className="text-[9px] sm:text-[10px] uppercase tracking-widest opacity-40">Community Member</p>
-                    </div>
+                    {(user?.uid === story.authorUid || isAdmin) && (
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => { setEditingStory(story); setIsStoryModalOpen(true); }}
+                          className={`p-2 rounded-xl transition-all ${darkMode ? "hover:bg-stone-700 text-stone-400" : "hover:bg-stone-100 text-stone-500"}`}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteStory(story.id)}
+                          className={`p-2 rounded-xl transition-all ${darkMode ? "hover:bg-red-900/30 text-red-400" : "hover:bg-red-50 text-red-500"}`}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -703,24 +739,41 @@ function App() {
       {isStoryModalOpen && (
         <StoryFormModal
           isOpen={isStoryModalOpen}
-          onClose={() => setIsStoryModalOpen(false)}
+          onClose={() => { setIsStoryModalOpen(false); setEditingStory(null); }}
           onSubmit={handleSaveStory}
           darkMode={darkMode}
+          initialData={editingStory}
         />
       )}
     </div>
   );
 }
 
-function StoryFormModal({ isOpen, onClose, onSubmit, darkMode }: { isOpen: boolean, onClose: () => void, onSubmit: (story: Partial<Story>) => void, darkMode: boolean }) {
+function StoryFormModal({ isOpen, onClose, onSubmit, darkMode, initialData }: { isOpen: boolean, onClose: () => void, onSubmit: (story: Partial<Story>) => void, darkMode: boolean, initialData?: Story | null }) {
   const [formData, setFormData] = useState({
-    content: "",
-    imageUrl: "",
-    petName: ""
+    content: initialData?.content || "",
+    imageUrl: initialData?.imageUrl || "",
+    petName: initialData?.petName || ""
   });
   const [keyPoints, setKeyPoints] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+
+  useEffect(() => {
+    if (initialData) {
+      setFormData({
+        content: initialData.content,
+        imageUrl: initialData.imageUrl || "",
+        petName: initialData.petName || ""
+      });
+    } else {
+      setFormData({
+        content: "",
+        imageUrl: "",
+        petName: ""
+      });
+    }
+  }, [initialData]);
 
   const generateAIStory = async () => {
     if (!keyPoints.trim()) return;
@@ -770,7 +823,7 @@ function StoryFormModal({ isOpen, onClose, onSubmit, darkMode }: { isOpen: boole
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-2 sm:p-4">
       <div className={`w-full max-w-lg p-5 sm:p-8 rounded-[2rem] sm:rounded-[3rem] shadow-2xl max-h-[95vh] overflow-y-auto no-scrollbar ${darkMode ? "bg-stone-900 text-white" : "bg-white text-stone-800"}`}>
         <div className="flex justify-between items-center mb-6 sm:mb-8 sticky top-0 bg-inherit z-10 pb-2">
-          <h2 className="text-xl sm:text-2xl font-black">Share a Success Story</h2>
+          <h2 className="text-xl sm:text-2xl font-black">{initialData ? "Edit Success Story" : "Share a Success Story"}</h2>
           <button onClick={onClose} className="p-2 rounded-full hover:bg-stone-100 dark:hover:bg-stone-800"><X size={24} /></button>
         </div>
         <form onSubmit={(e) => { e.preventDefault(); onSubmit(formData); }} className="space-y-4 sm:space-y-6">
@@ -830,7 +883,7 @@ function StoryFormModal({ isOpen, onClose, onSubmit, darkMode }: { isOpen: boole
             </div>
           </div>
           <button type="submit" disabled={isUploading || !formData.content} className="w-full bg-amber-500 text-stone-900 py-3.5 sm:py-4 rounded-3xl font-black text-base sm:text-lg shadow-xl active:scale-95 transition-all disabled:opacity-50">
-            Post Story
+            {initialData ? "Update Story" : "Post Story"}
           </button>
         </form>
       </div>
