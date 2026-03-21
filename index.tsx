@@ -164,6 +164,7 @@ interface Comment {
   createdAt: any;
   author: string;
   authorUid: string;
+  authorPhotoUrl?: string;
 }
 
 interface Pet {
@@ -184,6 +185,7 @@ interface Pet {
   comments: Comment[];
   cheers: number;
   authorUid: string;
+  authorPhotoUrl?: string;
 }
 
 interface Story {
@@ -194,6 +196,7 @@ interface Story {
   imageUrl?: string;
   authorUid: string;
   authorName: string;
+  authorPhotoUrl?: string;
   createdAt: any;
 }
 
@@ -264,6 +267,7 @@ const normalizePet = (p: Partial<Pet>): Pet => ({
   comments: p.comments || [],
   cheers: p.cheers || 0,
   authorUid: p.authorUid || "",
+  authorPhotoUrl: p.authorPhotoUrl || undefined,
 });
 
 const urgencyScore = (u: UrgencyLevel) => {
@@ -375,6 +379,7 @@ function App() {
       text, 
       author: user.displayName || 'Community Member', 
       authorUid: user.uid,
+      authorPhotoUrl: user.photoURL || undefined,
       createdAt: Timestamp.now()
     };
     try {
@@ -428,7 +433,12 @@ function App() {
       if (editingPet) {
         await updateDoc(doc(db, "pets", editingPet.id), { ...petData });
       } else {
-        await addDoc(collection(db, "pets"), { ...petData, authorUid: user.uid, postedAt: Timestamp.now() });
+        await addDoc(collection(db, "pets"), { 
+          ...petData, 
+          authorUid: user.uid, 
+          authorPhotoUrl: user.photoURL || undefined,
+          postedAt: Timestamp.now() 
+        });
       }
       addToast(editingPet ? 'Details updated!' : 'Pet listed!', 'success');
       setIsModalOpen(false);
@@ -449,6 +459,7 @@ function App() {
           ...storyData,
           authorUid: user.uid,
           authorName: user.displayName || "Anonymous",
+          authorPhotoUrl: user.photoURL || undefined,
           createdAt: Timestamp.now()
         });
         addToast("Story shared with the community!", "success");
@@ -516,9 +527,15 @@ function App() {
           </button>
           {user ? (
             <div className="flex items-center gap-2 sm:gap-4">
-              <div className="hidden xs:flex items-center gap-2 bg-stone-100 dark:bg-stone-800 px-3 py-1.5 rounded-full">
-                <img src={user.photoURL || ""} alt="" className="w-6 h-6 rounded-full" />
-                <span className="text-xs font-bold truncate max-w-[80px]">{user.displayName}</span>
+              <div className="flex items-center gap-2 bg-stone-100 dark:bg-stone-800 px-3 py-1.5 rounded-full">
+                {user.photoURL ? (
+                  <img src={user.photoURL} alt="" className="w-6 h-6 rounded-full" />
+                ) : (
+                  <div className="w-6 h-6 rounded-full bg-amber-500 flex items-center justify-center text-[10px] font-black text-white">
+                    {user.displayName?.charAt(0) || <User size={12} />}
+                  </div>
+                )}
+                <span className="text-xs font-bold truncate max-w-[80px] hidden xs:inline">{user.displayName}</span>
               </div>
               <button onClick={logout} className="p-2 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:text-red-500 transition-colors">
                 <LogOut size={20} />
@@ -631,8 +648,12 @@ function App() {
                   <p className="text-base sm:text-lg font-medium italic mb-4 sm:mb-6 leading-relaxed">"{story.content}"</p>
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 bg-amber-500 rounded-full flex items-center justify-center text-white font-black text-xs sm:text-sm">
-                        {story.authorName.charAt(0)}
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 bg-amber-500 rounded-full flex items-center justify-center text-white font-black text-xs overflow-hidden">
+                        {story.authorPhotoUrl ? (
+                          <img src={story.authorPhotoUrl} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          story.authorName.charAt(0)
+                        )}
                       </div>
                       <div>
                         <p className="text-xs sm:text-sm font-black">{story.authorName}</p>
@@ -894,6 +915,7 @@ function StoryFormModal({ isOpen, onClose, onSubmit, darkMode, initialData }: { 
 // --- Pet Form Modal ---
 
 function PetFormModal({ isOpen, onClose, onSubmit, darkMode, initialData }: { isOpen: boolean, onClose: () => void, onSubmit: (pet: Pet) => void, darkMode: boolean, initialData?: Pet }) {
+  const { user } = useAuth();
   const [loadingBio, setLoadingBio] = useState(false);
   const [formData, setFormData] = useState({
     name: initialData?.name || "",
@@ -975,7 +997,10 @@ function PetFormModal({ isOpen, onClose, onSubmit, darkMode, initialData }: { is
         <form onSubmit={(e) => { e.preventDefault(); onSubmit({ ...normalizePet(initialData || {}), ...formData, postedAt: initialData?.postedAt || new Date() }); }} className="flex-1 overflow-y-auto p-6 space-y-8 no-scrollbar scrollbar-hide pb-24">
           <div className="space-y-6">
             <section>
-              <h3 className="text-[11px] font-black mb-4 flex items-center gap-2 text-blue-600 uppercase tracking-widest"><User size={14}/> Identity</h3>
+              <h3 className="text-[11px] font-black mb-4 flex items-center gap-2 text-blue-600 uppercase tracking-widest">
+                <User size={14}/>
+                Identity
+              </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className={labelStyles}>Pet Name *</label>
@@ -1053,7 +1078,10 @@ function PetFormModal({ isOpen, onClose, onSubmit, darkMode, initialData }: { is
             </section>
 
             <section>
-              <h3 className="text-[11px] font-black mb-4 flex items-center gap-2 text-green-700 uppercase tracking-widest"><Phone size={14}/> Contact Details</h3>
+              <h3 className="text-[11px] font-black mb-4 flex items-center gap-2 text-green-700 uppercase tracking-widest">
+                <Phone size={14}/>
+                Contact Details
+              </h3>
               <div className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
@@ -1062,7 +1090,9 @@ function PetFormModal({ isOpen, onClose, onSubmit, darkMode, initialData }: { is
                   </div>
                   <div>
                     <label className={labelStyles}>Reporter Name *</label>
-                    <input required className={inputStyles} placeholder="Your name" value={formData.contactName} onChange={e => setFormData({...formData, contactName: e.target.value})} />
+                    <div className="relative">
+                      <input required className={inputStyles} placeholder="Your name" value={formData.contactName} onChange={e => setFormData({...formData, contactName: e.target.value})} />
+                    </div>
                   </div>
                 </div>
                 <div>
@@ -1097,7 +1127,8 @@ const PosterModal: React.FC<{ pet: Pet; onClose: () => void; darkMode: boolean }
       const original = posterRef.current;
       const clone = original.cloneNode(true) as HTMLDivElement;
       
-      clone.style.width = "800px";
+      clone.style.width = "911px";
+      clone.style.minHeight = "1594px";
       clone.style.height = "auto";
       clone.style.position = "absolute";
       clone.style.top = "-9999px";
@@ -1105,6 +1136,7 @@ const PosterModal: React.FC<{ pet: Pet; onClose: () => void; darkMode: boolean }
       clone.style.boxShadow = "none";
       clone.style.transform = "none";
       clone.style.borderWidth = "20px";
+      clone.style.maxWidth = "none";
 
       document.body.appendChild(clone);
 
@@ -1113,10 +1145,10 @@ const PosterModal: React.FC<{ pet: Pet; onClose: () => void; darkMode: boolean }
       // @ts-ignore
       const canvas = await html2canvas(clone, {
         useCORS: true,
-        scale: 2,
+        scale: 3,
         backgroundColor: "#ffffff",
         logging: false,
-        width: 800,
+        width: 911,
         height: clone.scrollHeight,
       });
       
@@ -1277,7 +1309,16 @@ const PetCard: React.FC<{
 
       <div className="p-6 flex flex-col flex-1">
         <div className="flex justify-between items-start mb-1">
-           <h3 className="text-2xl font-black truncate pr-4">{pet.name}</h3>
+           <div className="flex items-center gap-2 truncate">
+             <div className="w-9 h-9 rounded-full bg-amber-500 flex items-center justify-center text-xs font-black text-white overflow-hidden shrink-0">
+               {pet.authorPhotoUrl ? (
+                 <img src={pet.authorPhotoUrl} alt="" className="w-full h-full object-cover" />
+               ) : (
+                 pet.contactName.charAt(0)
+               )}
+             </div>
+             <h3 className="text-2xl font-black truncate">{pet.name}</h3>
+           </div>
            {canEdit && (
              <div className="flex gap-1 shrink-0">
                <button onClick={onEdit} className="p-2.5 rounded-full hover:bg-amber-500/10 text-stone-400 hover:text-amber-600 transition-colors"><Pencil size={18} /></button>
@@ -1296,8 +1337,12 @@ const PetCard: React.FC<{
 
         <div className="mt-auto space-y-4">
           <div className="flex items-center gap-3">
-             <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center font-black text-xs">
-                {pet.contactName.charAt(0)}
+             <div className="w-9 h-9 rounded-full bg-amber-500 text-white flex items-center justify-center font-black text-xs overflow-hidden">
+                {pet.authorPhotoUrl ? (
+                  <img src={pet.authorPhotoUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  pet.contactName.charAt(0)
+                )}
              </div>
              <div className="flex-1 min-w-0">
                 <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Reporter</p>
@@ -1340,8 +1385,18 @@ const PetCard: React.FC<{
 
           {showComments && (
             <div className="animate-in slide-in-from-top-2 duration-300 pt-2">
-               <div className="space-y-2 mb-3 max-h-32 overflow-y-auto pr-2 no-scrollbar">
-                  {pet.comments.map(c => <div key={c.id} className={`p-3 rounded-2xl text-[11px] font-medium leading-relaxed ${darkMode ? "bg-stone-700/50 text-stone-200" : "bg-stone-50 text-stone-700"}`}>{c.text}</div>)}
+               <div className="space-y-3 mb-3 max-h-32 overflow-y-auto pr-2 no-scrollbar">
+                  {pet.comments.map(c => (
+                    <div key={c.id} className="flex gap-2 items-start">
+                      <div className="w-6 h-6 rounded-full bg-amber-500 flex-shrink-0 flex items-center justify-center text-[8px] font-black text-white overflow-hidden">
+                        {c.authorPhotoUrl ? <img src={c.authorPhotoUrl} className="w-full h-full object-cover" /> : c.author.charAt(0)}
+                      </div>
+                      <div className={`p-2.5 rounded-2xl text-[10px] font-medium leading-relaxed flex-1 ${darkMode ? "bg-stone-700/50 text-stone-200" : "bg-stone-50 text-stone-700"}`}>
+                        <p className="font-black text-[8px] mb-0.5 opacity-50">{c.author}</p>
+                        {c.text}
+                      </div>
+                    </div>
+                  ))}
                </div>
                <div className="flex gap-2">
                  <input value={newComment} onChange={e => setNewComment(e.target.value)} onKeyPress={e => e.key === 'Enter' && (onAddComment(pet.id, newComment), setNewComment(""))} placeholder="Write a note..." className={`flex-1 px-4 py-2.5 rounded-2xl text-[11px] outline-none border focus:border-amber-500 ${darkMode ? "bg-stone-900 border-stone-700 text-white" : "bg-white"}`} />
