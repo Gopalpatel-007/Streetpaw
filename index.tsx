@@ -22,9 +22,25 @@ import {
   arrayUnion,
   increment,
   Timestamp,
-  onAuthStateChanged
+  onAuthStateChanged,
+  getDocFromServer
 } from "./firebase";
 import { AuthProvider, useAuth } from "./auth";
+
+// Test connection on boot
+const testConnection = async () => {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+    console.log("Firestore connection test successful.");
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error("Firestore connection failed: the client is offline. Please check your Firebase configuration.");
+    } else {
+      console.warn("Firestore connection test warning (expected if 'test/connection' doesn't exist):", error);
+    }
+  }
+};
+testConnection();
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Camera,
@@ -65,7 +81,7 @@ import {
 // --- Types & Constants ---
 type PetType = "Dog" | "Cat" | "Bird" | "Rat" | "Other";
 type SortOption = "Newest" | "Oldest" | "Name" | "Urgency";
-type FilterType = PetType | "All" | "Favorites" | "Urgent" | "Stories";
+type FilterType = PetType | "All" | "Favorites" | "Stories";
 type ViewMode = "grid" | "list";
 type UrgencyLevel = "Low" | "Medium" | "High" | "Critical";
 type PetStatus = "Available" | "Adopted" | "Fostered";
@@ -86,7 +102,7 @@ interface FirestoreErrorInfo {
   authInfo: any;
 }
 
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null, silent: boolean = false) {
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
@@ -97,7 +113,9 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     path
   }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  if (!silent) {
+    throw new Error(JSON.stringify(errInfo));
+  }
 }
 
 interface ErrorBoundaryProps {
@@ -237,7 +255,7 @@ const INITIAL_PETS: Pet[] = [
     imageUrl: "https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&q=80&w=800",
     contactNumber: "15550001234",
     contactName: "Market Keeper",
-    postedAt: new Date(Date.now() - 1000 * 60 * 60 * 2),
+    postedAt: Timestamp.fromDate(new Date(Date.now() - 1000 * 60 * 60 * 2)),
     urgency: "Medium",
     status: "Available",
     traits: "gentle, shy, food-motivated, chill",
@@ -256,14 +274,14 @@ const INITIAL_PETS: Pet[] = [
     imageUrl: "https://images.unsplash.com/photo-1526336024174-e58f5cdd8e13?auto=format&fit=crop&q=80&w=800",
     contactNumber: "15550005678",
     contactName: "Sarah J.",
-    postedAt: new Date(Date.now() - 1000 * 60 * 60 * 24),
+    postedAt: Timestamp.fromDate(new Date(Date.now() - 1000 * 60 * 60 * 24)),
     urgency: "Low",
     status: "Adopted",
     traits: "playful, energetic, clean, active",
-    comments: [{ id: "c1", text: "So happy she found a home!", author: "Neighbor", createdAt: new Date(), authorUid: "system" }],
+    comments: [{ id: "c1", text: "So happy she found a home!", author: "Neighbor", createdAt: Timestamp.now(), authorUid: "system" }],
     cheers: 24,
     authorUid: "system"
-  },
+  }
 ];
 
 // --- Helpers ---
@@ -319,6 +337,21 @@ function App() {
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [quotaExceeded, setQuotaExceeded] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+  });
+
+  const openConfirm = (title: string, message: string, onConfirm: () => void) => {
+    setConfirmModal({ isOpen: true, title, message, onConfirm });
+  };
 
   // Sync dark mode class
   useEffect(() => {
@@ -345,53 +378,55 @@ function App() {
   }, [isModalOpen, posterPet, isStoryModalOpen]);
 
   // Firestore Listeners
-  const fetchPets = async () => {
-    console.log("Fetching pets...");
-    try {
-      const q = query(collection(db, "pets"), orderBy("postedAt", "desc"), limit(20));
-      const snapshot = await getDocs(q);
+  useEffect(() => {
+    console.log("Setting up pets listener...");
+    const q = query(collection(db, "pets"), orderBy("postedAt", "desc"), limit(20));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       const petsData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Pet));
       setPets(petsData.length > 0 ? petsData : INITIAL_PETS);
       setQuotaExceeded(false);
-    } catch (error: any) {
+    }, (error: any) => {
       if (error.message?.includes("Quota") || error.code === "resource-exhausted") {
-        console.warn("Firestore Quota Exceeded. Falling back to sample data.");
+        console.warn("Firestore Quota Exceeded for pets. Falling back to sample data.");
         setPets(INITIAL_PETS);
         setQuotaExceeded(true);
-        // Optimization: Automatically hide the warning banner after 10 seconds.
         setTimeout(() => setQuotaExceeded(false), 10000);
       } else {
-        handleFirestoreError(error, OperationType.LIST, "pets");
+        console.warn("Pets fetch failed due to permissions or other error. Falling back to initial data.");
+        setPets(INITIAL_PETS);
+        addToast("Unable to connect to database. Showing offline data.", "info");
+        handleFirestoreError(error, OperationType.LIST, "pets", true);
       }
-    }
-  };
+    });
 
-  useEffect(() => {
-    fetchPets();
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    const fetchStories = async () => {
-      try {
-        const q = query(collection(db, "stories"), orderBy("createdAt", "desc"), limit(10));
-        const snapshot = await getDocs(q);
-        const storiesData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Story));
-        setStories(storiesData);
-      } catch (error: any) {
-        if (error.message?.includes("Quota") || error.code === "resource-exhausted") {
-          console.warn("Stories fetch failed due to quota.");
-          setStories([]);
-          setQuotaExceeded(true);
-          // Optimization: Automatically hide the warning banner after 10 seconds.
-          setTimeout(() => setQuotaExceeded(false), 10000);
-        } else {
-          handleFirestoreError(error, OperationType.LIST, "stories");
-        }
+    console.log("Setting up stories listener...");
+    const q = query(collection(db, "stories"), orderBy("createdAt", "desc"), limit(10));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const storiesData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Story));
+      setStories(storiesData);
+      setQuotaExceeded(false);
+    }, (error: any) => {
+      if (error.message?.includes("Quota") || error.code === "resource-exhausted") {
+        console.warn("Stories fetch failed due to quota.");
+        setStories([]);
+        setQuotaExceeded(true);
+        setTimeout(() => setQuotaExceeded(false), 10000);
+      } else {
+        console.warn("Stories fetch failed due to permissions or other error.");
+        handleFirestoreError(error, OperationType.LIST, "stories", true);
       }
-    };
-    fetchStories();
+    });
+
+    return () => unsubscribe();
   }, []);
 
+  // fetchPets is now redundant for initial load, but keep it for manual refreshes if needed
   const addToast = (message: string, type: Toast["type"] = "info") => {
     const id = Math.random().toString(36);
     setToasts((prev) => [...prev, { id, message, type }]);
@@ -463,77 +498,102 @@ function App() {
      }
   };
 
-  const handleDeletePet = async (petId: string) => {
-    if (confirm("Are you sure you want to delete this listing?")) {
-      try {
-        await deleteDoc(doc(db, "pets", petId));
-        addToast("Listing deleted.", "info");
-      } catch (error) {
-        handleFirestoreError(error, OperationType.DELETE, `pets/${petId}`);
+  const handleDeletePet = (petId: string) => {
+    openConfirm(
+      "Delete Listing",
+      "Are you sure you want to delete this pet listing? This action cannot be undone.",
+      async () => {
+        try {
+          await deleteDoc(doc(db, "pets", petId));
+          addToast("Listing deleted.", "info");
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, `pets/${petId}`);
+        }
       }
-    }
+    );
   };
 
   const handleSavePet = async (petData: Pet) => {
-    if (!user) return;
+    if (!user) {
+      addToast("Please login to list a stray!", "error");
+      return;
+    }
     try {
+      // Ensure postedAt is a Firestore Timestamp and authorUid is current user
+      const { id, ...rest } = petData;
+      const finalPetData = {
+        ...rest,
+        authorUid: user.uid,
+        authorPhotoUrl: user.photoURL || null, // Use null instead of undefined for Firestore
+        postedAt: petData.postedAt instanceof Date ? Timestamp.fromDate(petData.postedAt) : (petData.postedAt || Timestamp.now()),
+        status: petData.status || "Available",
+        cheers: petData.cheers || 0,
+        comments: petData.comments || []
+      };
+
       if (editingPet) {
-        await updateDoc(doc(db, "pets", editingPet.id), { ...petData });
+        await updateDoc(doc(db, "pets", editingPet.id), finalPetData);
+        addToast('Details updated!', 'success');
       } else {
-        await addDoc(collection(db, "pets"), { 
-          ...petData, 
-          authorUid: user.uid, 
-          authorPhotoUrl: user.photoURL || undefined,
-          postedAt: Timestamp.now() 
-        });
+        await addDoc(collection(db, "pets"), finalPetData);
+        addToast('Pet listed!', 'success');
       }
-      addToast(editingPet ? 'Details updated!' : 'Pet listed!', 'success');
       setIsModalOpen(false);
       setEditingPet(null);
     } catch (error) {
+      console.error("Save Pet Error:", error);
       handleFirestoreError(error, OperationType.WRITE, "pets");
     }
   };
 
   const handleSaveStory = async (storyData: Partial<Story>) => {
-    if (!user) return;
+    if (!user) {
+      addToast("Please login to share a story!", "error");
+      return;
+    }
     try {
+      const finalStoryData = {
+        ...storyData,
+        authorUid: user.uid,
+        authorName: user.displayName || "Anonymous",
+        authorPhotoUrl: user.photoURL || null,
+        createdAt: storyData.createdAt || Timestamp.now()
+      };
+
       if (editingStory) {
-        await updateDoc(doc(db, "stories", editingStory.id), { ...storyData });
+        await updateDoc(doc(db, "stories", editingStory.id), finalStoryData);
         addToast("Story updated!", "success");
       } else {
-        await addDoc(collection(db, "stories"), {
-          ...storyData,
-          authorUid: user.uid,
-          authorName: user.displayName || "Anonymous",
-          authorPhotoUrl: user.photoURL || undefined,
-          createdAt: Timestamp.now()
-        });
+        await addDoc(collection(db, "stories"), finalStoryData);
         addToast("Story shared with the community!", "success");
       }
       setIsStoryModalOpen(false);
       setEditingStory(null);
     } catch (error) {
+      console.error("Save Story Error:", error);
       handleFirestoreError(error, OperationType.WRITE, "stories");
     }
   };
 
-  const handleDeleteStory = async (storyId: string) => {
-    if (confirm("Are you sure you want to delete this story?")) {
-      try {
-        await deleteDoc(doc(db, "stories", storyId));
-        addToast("Story deleted.", "info");
-      } catch (error) {
-        handleFirestoreError(error, OperationType.DELETE, `stories/${storyId}`);
+  const handleDeleteStory = (storyId: string) => {
+    openConfirm(
+      "Delete Story",
+      "Are you sure you want to delete this story? This action cannot be undone.",
+      async () => {
+        try {
+          await deleteDoc(doc(db, "stories", storyId));
+          addToast("Story deleted.", "info");
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, `stories/${storyId}`);
+        }
       }
-    }
+    );
   };
 
   const filteredPets = pets.filter((pet) => {
     if (selectedType === "Stories") return false;
     const matchesType = selectedType === "All" || 
                        (selectedType === "Favorites" && favorites.includes(pet.id)) || 
-                       (selectedType === "Urgent" && (pet.urgency === "High" || pet.urgency === "Critical")) || 
                        pet.type === selectedType;
     
     const name = pet.name || "";
@@ -546,7 +606,11 @@ function App() {
   const sortedPets = [...filteredPets].sort((a, b) => {
     if (a.status === "Adopted" && b.status !== "Adopted") return 1;
     if (b.status === "Adopted" && a.status !== "Adopted") return -1;
-    if (sortBy === "Newest") return b.postedAt.toMillis() - a.postedAt.toMillis();
+    if (sortBy === "Newest") {
+      const timeA = a.postedAt?.toMillis ? a.postedAt.toMillis() : (a.postedAt instanceof Date ? a.postedAt.getTime() : 0);
+      const timeB = b.postedAt?.toMillis ? b.postedAt.toMillis() : (b.postedAt instanceof Date ? b.postedAt.getTime() : 0);
+      return timeB - timeA;
+    }
     if (sortBy === "Urgency") return urgencyScore(b.urgency) - urgencyScore(a.urgency);
     if (sortBy === "Name") return a.name.localeCompare(b.name);
     return 0;
@@ -676,7 +740,7 @@ function App() {
       <main className="max-w-7xl mx-auto px-4 py-8 no-print">
         <div className="flex flex-col gap-6 mb-10">
           <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar scroll-smooth">
-            {["All", "Favorites", "Urgent", "Stories", "Dog", "Cat", "Bird", "Other"].map((type) => (
+            {["All", "Stories", "Favorites", "Dog", "Cat", "Bird", "Other"].map((type) => (
               <button
                 key={type}
                 onClick={() => { setSelectedType(type as FilterType); }}
@@ -801,18 +865,24 @@ function App() {
               <p className="text-sm opacity-60 mt-2 mb-8">Try adjusting your filters or search term.</p>
               {pets.length === 0 ? (
                 <button 
-                  onClick={() => {
-                    INITIAL_PETS.forEach(async (p) => {
+                  onClick={async () => {
+                    if (!user) {
+                      addToast("Please login to load sample pets!", "error");
+                      return;
+                    }
+                    await Promise.all(INITIAL_PETS.map(async (p) => {
                       try {
+                        const { id, ...petWithoutId } = p;
                         await addDoc(collection(db, "pets"), {
-                          ...p,
+                          ...petWithoutId,
                           postedAt: Timestamp.now(),
-                          authorUid: user?.uid || "system"
+                          authorUid: user.uid,
+                          authorPhotoUrl: user.photoURL || null
                         });
                       } catch (e) {
                         console.error("Error adding sample pet:", e);
                       }
-                    });
+                    }));
                     addToast("Sample pets added!", "success");
                   }}
                   className="bg-stone-900 dark:bg-amber-500 text-white dark:text-stone-900 px-8 py-4 rounded-3xl font-black text-sm hover:scale-105 transition-all active:scale-95 shadow-xl"
@@ -924,6 +994,7 @@ function App() {
           onSubmit={handleSavePet}
           darkMode={darkMode}
           initialData={editingPet || undefined}
+          addToast={addToast}
         />
       )}
       
@@ -932,6 +1003,7 @@ function App() {
           pet={posterPet} 
           onClose={() => setPosterPet(null)} 
           darkMode={darkMode} 
+          addToast={addToast}
         />
       )}
 
@@ -942,6 +1014,7 @@ function App() {
           onSubmit={handleSaveStory}
           darkMode={darkMode}
           initialData={editingStory}
+          addToast={addToast}
         />
       )}
 
@@ -950,6 +1023,16 @@ function App() {
         onClose={() => setIsChatOpen(false)} 
         darkMode={darkMode} 
         pets={pets}
+        onClearChat={() => {
+          openConfirm(
+            "Clear Chat",
+            "Are you sure you want to clear your chat history?",
+            () => {
+              localStorage.removeItem("streetpaws_chat_history");
+              addToast("Chat history cleared.", "info");
+            }
+          );
+        }}
       />
 
       <button 
@@ -963,7 +1046,7 @@ function App() {
   );
 }
 
-function StoryFormModal({ isOpen, onClose, onSubmit, darkMode, initialData }: { isOpen: boolean, onClose: () => void, onSubmit: (story: Partial<Story>) => void, darkMode: boolean, initialData?: Story | null }) {
+function StoryFormModal({ isOpen, onClose, onSubmit, darkMode, initialData, addToast }: { isOpen: boolean, onClose: () => void, onSubmit: (story: Partial<Story>) => void, darkMode: boolean, initialData?: Story | null, addToast: (msg: string, type: any) => void }) {
   const [formData, setFormData] = useState({
     content: initialData?.content || "",
     imageUrl: initialData?.imageUrl || "",
@@ -1013,7 +1096,7 @@ function StoryFormModal({ isOpen, onClose, onSubmit, darkMode, initialData }: { 
     if (!file) return;
     
     if (file.size > 800 * 1024) {
-      alert("Image is too large. Please select an image smaller than 800KB.");
+      addToast("Image is too large. Please select an image smaller than 800KB.", "error");
       return;
     }
 
@@ -1023,7 +1106,7 @@ function StoryFormModal({ isOpen, onClose, onSubmit, darkMode, initialData }: { 
       setFormData(prev => ({ ...prev, imageUrl: base64 }));
     } catch (err) {
       console.error("File upload error:", err);
-      alert("Failed to process image.");
+      addToast("Failed to process image.", "error");
     } finally {
       setIsUploading(false);
     }
@@ -1107,7 +1190,7 @@ function StoryFormModal({ isOpen, onClose, onSubmit, darkMode, initialData }: { 
 
 // --- Pet Form Modal ---
 
-function PetFormModal({ isOpen, onClose, onSubmit, darkMode, initialData }: { isOpen: boolean, onClose: () => void, onSubmit: (pet: Pet) => void, darkMode: boolean, initialData?: Pet }) {
+function PetFormModal({ isOpen, onClose, onSubmit, darkMode, initialData, addToast }: { isOpen: boolean, onClose: () => void, onSubmit: (pet: Pet) => void, darkMode: boolean, initialData?: Pet, addToast: (msg: string, type: any) => void }) {
   const { user } = useAuth();
   const [loadingBio, setLoadingBio] = useState(false);
   const [formData, setFormData] = useState({
@@ -1130,7 +1213,7 @@ function PetFormModal({ isOpen, onClose, onSubmit, darkMode, initialData }: { is
     if (!file) return;
     
     if (file.size > 800 * 1024) {
-      alert("Image is too large. Please select an image smaller than 800KB.");
+      addToast("Image is too large. Please select an image smaller than 800KB.", "error");
       return;
     }
 
@@ -1140,7 +1223,7 @@ function PetFormModal({ isOpen, onClose, onSubmit, darkMode, initialData }: { is
       setFormData(prev => ({ ...prev, imageUrl: base64 }));
     } catch (err) {
       console.error("File upload error:", err);
-      alert("Failed to process image.");
+      addToast("Failed to process image.", "error");
     } finally {
       setIsUploading(false);
     }
@@ -1157,7 +1240,7 @@ function PetFormModal({ isOpen, onClose, onSubmit, darkMode, initialData }: { is
       });
       setFormData(prev => ({ ...prev, description: res.text?.trim() || "" }));
     } catch {
-      alert("AI generator failed. Please write manually.");
+      addToast("AI generator failed. Please write manually.", "error");
     } finally { setLoadingBio(false); }
   };
 
@@ -1309,7 +1392,7 @@ function PetFormModal({ isOpen, onClose, onSubmit, darkMode, initialData }: { is
 
 // --- Poster Modal ---
 
-const PosterModal: React.FC<{ pet: Pet; onClose: () => void; darkMode: boolean }> = ({ pet, onClose, darkMode }) => {
+const PosterModal: React.FC<{ pet: Pet; onClose: () => void; darkMode: boolean; addToast: (msg: string, type: any) => void }> = ({ pet, onClose, darkMode, addToast }) => {
   const [downloading, setDownloading] = useState(false);
   const posterRef = useRef<HTMLDivElement>(null);
 
@@ -1354,7 +1437,7 @@ const PosterModal: React.FC<{ pet: Pet; onClose: () => void; darkMode: boolean }
       link.click();
     } catch (e) {
       console.error(e);
-      alert("Capture failed.");
+      addToast("Capture failed.", "error");
     } finally {
       setDownloading(false);
     }
@@ -1503,13 +1586,6 @@ const PetCard: React.FC<{
       <div className="p-4 sm:p-6 flex flex-col flex-1">
         <div className="flex justify-between items-start mb-1">
            <div className="flex items-center gap-2 truncate">
-             <div className="w-9 h-9 rounded-full bg-amber-500 flex items-center justify-center text-xs font-black text-white overflow-hidden shrink-0">
-               {pet.authorPhotoUrl ? (
-                 <img src={pet.authorPhotoUrl} alt="" className="w-full h-full object-cover" />
-               ) : (
-                 pet.contactName.charAt(0)
-               )}
-             </div>
              <h3 className="text-2xl font-black truncate">{pet.name}</h3>
            </div>
            {canEdit && (
@@ -1610,7 +1686,8 @@ const ChatAssistant: React.FC<{
   onClose: () => void;
   darkMode: boolean;
   pets: Pet[];
-}> = ({ isOpen, onClose, darkMode, pets }) => {
+  onClearChat: () => void;
+}> = ({ isOpen, onClose, darkMode, pets, onClearChat }) => {
   const [messages, setMessages] = useState<{ role: "user" | "ai"; text: string }[]>(() => {
     const saved = localStorage.getItem("streetpaws_chat_history");
     return saved ? JSON.parse(saved) : [
@@ -1673,10 +1750,8 @@ const ChatAssistant: React.FC<{
   };
 
   const clearChat = () => {
-    if (confirm("Clear chat history?")) {
-      setMessages([{ role: "ai", text: "Chat history cleared. How else can I help you?" }]);
-      localStorage.removeItem("streetpaws_chat_history");
-    }
+    onClearChat();
+    setMessages([{ role: "ai", text: "Chat history cleared. How else can I help you?" }]);
   };
 
   return (
@@ -1798,6 +1873,45 @@ const ChatAssistant: React.FC<{
     </AnimatePresence>
   );
 };
+
+// --- Confirm Modal ---
+
+function ConfirmModal({ isOpen, title, message, onConfirm, onClose, darkMode }: { 
+  isOpen: boolean, 
+  title: string, 
+  message: string, 
+  onConfirm: () => void, 
+  onClose: () => void,
+  darkMode: boolean 
+}) {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+      <motion.div 
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className={`w-full max-w-md p-8 rounded-[2.5rem] shadow-2xl ${darkMode ? "bg-stone-900 text-white" : "bg-white text-stone-800"}`}
+      >
+        <h2 className="text-2xl font-black mb-4">{title}</h2>
+        <p className="text-sm font-bold opacity-70 mb-8 leading-relaxed">{message}</p>
+        <div className="flex gap-4">
+          <button 
+            onClick={onClose}
+            className={`flex-1 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all ${darkMode ? "bg-stone-800 hover:bg-stone-700" : "bg-stone-100 hover:bg-stone-200"}`}
+          >
+            Cancel
+          </button>
+          <button 
+            onClick={() => { onConfirm(); onClose(); }}
+            className="flex-1 py-4 rounded-2xl bg-red-500 text-white font-black text-xs uppercase tracking-widest hover:bg-red-600 transition-all shadow-lg shadow-red-500/20"
+          >
+            Confirm
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
 
 // --- Recommendation Modal ---
 

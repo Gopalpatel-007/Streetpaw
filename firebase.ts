@@ -32,6 +32,7 @@ export {
   arrayUnion,
   increment,
   Timestamp,
-  onAuthStateChanged
+  onAuthStateChanged,
+  getDocFromServer
 };
 export type { User };

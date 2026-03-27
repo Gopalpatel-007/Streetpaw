@@ -1,5 +1,5 @@
 {
-  "description": "A modern healthcare platform with AI-powered health assistance, symptom checking, and doctor finding.",
-  "requestFramePermissions": [],
-  "name": "Streetpaw"
+  "description": "A community-driven platform for listing stray animals, sharing success stories, and connecting kind hearts with paws in need.",
+  "requestFramePermissions": ["geolocation"],
+  "name": "StreetPaws"
 }

@@ -40,6 +40,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setIsAdmin(userSnap.data().role === 'admin' || currentUser.email === 'gopalpatelpatel693@gmail.com');
             }
           } catch (dbError: any) {
+            console.error("Firestore Auth Check Error:", dbError);
             // Optimization: If Firestore is blocked by quota, still allow the user to be "logged in"
             // based on Firebase Auth, but default to non-admin role.
             console.warn("Firestore access failed during auth check (likely quota). Defaulting to guest profile.");

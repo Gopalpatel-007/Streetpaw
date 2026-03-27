@@ -1,157 +1,16 @@
-rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // ===============================================================
-    // Assumed Data Model
-    // ===============================================================
-    //
-    // Collection: pets
-    // Document ID: auto-generated
-    // Fields:
-    //   - name: string (required, 1-100 chars)
-    //   - type: string (required, enum: Dog, Cat, Bird, Rat, Other)
-    //   - age: string (optional, 0-50 chars)
-    //   - location: string (required, 1-200 chars)
-    //   - description: string (required, 1-2000 chars)
-    //   - imageUrl: string (required, valid URL)
-    //   - contactNumber: string (required, 1-20 chars)
-    //   - contactName: string (required, 1-100 chars)
-    //   - postedAt: timestamp (required)
-    //   - urgency: string (required, enum: Low, Medium, High, Critical)
-    //   - status: string (required, enum: Available, Adopted, Fostered)
-    //   - traits: string (optional, 0-500 chars)
-    //   - cheers: number (optional, >= 0)
-    //   - authorUid: string (required, matches auth.uid)
-    //   - comments: list (optional, max 100 items)
-    //
-    // Collection: stories
-    // Document ID: auto-generated
-    // Fields:
-    //   - petId: string (optional)
-    //   - petName: string (optional)
-    //   - content: string (required, 1-5000 chars)
-    //   - imageUrl: string (optional, valid URL)
-    //   - authorUid: string (required, matches auth.uid)
-    //   - authorName: string (required, 1-100 chars)
-    //   - createdAt: timestamp (required)
-    //
-    // Collection: users
-    // Document ID: userId (matches auth.uid)
-    // Fields:
-    //   - displayName: string (required, 1-100 chars)
-    //   - email: string (required, valid email)
-    //   - photoURL: string (optional, valid URL)
-    //   - role: string (required, enum: user, admin)
-    //
-    // ===============================================================
-
-    // ===============================================================
-    // Helper Functions
-    // ===============================================================
-
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
-
-    function isAdmin() {
-      return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-          (request.auth.token.email == "gopalpatelpatel693@gmail.com" && request.auth.token.email_verified == true));
-    }
-
-    function isValidImage(img) {
-      return img is string && img.size() <= 1048576 && (img.matches("^https://.*") || img.matches("^http://.*") || img.matches("^data:image/.*;base64,.*"));
-    }
-
-    function isValidUrl(url) {
-      return url is string && url.size() <= 2000 && (url.matches("^https://.*") || url.matches("^http://.*"));
-    }
-
-    function isValidEmail(email) {
-      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
-    }
-
-    function hasOnlyAllowedFields(fields) {
-      return request.resource.data.keys().hasOnly(fields);
-    }
-
-    function hasRequiredFields(fields) {
-      return request.resource.data.keys().hasAll(fields);
-    }
-
-    // ===============================================================
-    // Domain Validators
-    // ===============================================================
-
-    function isValidPet(data) {
-      let petTypes = ["Dog", "Cat", "Bird", "Rat", "Other"];
-      let urgencyLevels = ["Low", "Medium", "High", "Critical"];
-      let statuses = ["Available", "Adopted", "Fostered"];
-      
-      return hasRequiredFields(['name', 'type', 'location', 'description', 'imageUrl', 'contactNumber', 'contactName', 'postedAt', 'urgency', 'status', 'authorUid']) &&
-             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
-             data.type in petTypes &&
-             data.location is string && data.location.size() > 0 && data.location.size() <= 200 &&
-             data.description is string && data.description.size() > 0 && data.description.size() <= 2000 &&
-             isValidImage(data.imageUrl) &&
-             data.contactNumber is string && data.contactNumber.size() > 0 && data.contactNumber.size() <= 20 &&
-             data.contactName is string && data.contactName.size() > 0 && data.contactName.size() <= 100 &&
-             data.postedAt is timestamp &&
-             data.urgency in urgencyLevels &&
-             data.status in statuses &&
-             data.authorUid is string &&
-             (!('cheers' in data) || (data.cheers is number && data.cheers >= 0)) &&
-             (!('traits' in data) || (data.traits is string && data.traits.size() <= 500)) &&
-             (!('comments' in data) || (data.comments is list && data.comments.size() <= 100));
-    }
-
-    function isValidStory(data) {
-      return hasRequiredFields(['content', 'authorUid', 'authorName', 'createdAt']) &&
-             data.content is string && data.content.size() > 0 && data.content.size() <= 5000 &&
-             data.authorUid is string &&
-             data.authorName is string && data.authorName.size() > 0 && data.authorName.size() <= 100 &&
-             data.createdAt is timestamp &&
-             (!('imageUrl' in data) || isValidImage(data.imageUrl)) &&
-             (!('petId' in data) || data.petId is string) &&
-             (!('petName' in data) || data.petName is string);
-    }
-
-    function isValidUser(data) {
-      return hasRequiredFields(['displayName', 'email', 'role']) &&
-             data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 100 &&
-             isValidEmail(data.email) &&
-             data.role in ['user', 'admin'] &&
-             (!('photoURL' in data) || isValidUrl(data.photoURL));
-    }
-
-    // ===============================================================
-    // Rules
-    // ===============================================================
-
-    match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow create: if isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == 'user';
-      allow update: if (isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == resource.data.role) || isAdmin();
-      allow delete: if isAdmin();
-    }
-
     match /pets/{petId} {
-      allow read: if true; // Publicly readable for adoption
-      allow create: if isAuthenticated() && isValidPet(request.resource.data) && request.resource.data.authorUid == request.auth.uid;
-      allow update: if isAuthenticated() && isValidPet(request.resource.data) && (request.resource.data.authorUid == resource.data.authorUid && (request.auth.uid == resource.data.authorUid || isAdmin()));
-      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.authorUid || isAdmin());
+      allow read: if true;
+      allow write: if request.auth != null;
     }
-
     match /stories/{storyId} {
-      allow read: if true; // Publicly readable for community inspiration
-      allow create: if isAuthenticated() && isValidStory(request.resource.data) && request.resource.data.authorUid == request.auth.uid;
-      allow update: if isAuthenticated() && isValidStory(request.resource.data) && request.resource.data.authorUid == resource.data.authorUid && (request.auth.uid == resource.data.authorUid || isAdmin());
-      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.authorUid || isAdmin());
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
     }
   }
 }
