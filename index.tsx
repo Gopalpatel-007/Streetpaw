@@ -813,7 +813,7 @@ function App() {
                         <p className="text-[9px] sm:text-[10px] uppercase tracking-widest opacity-40">Community Member</p>
                       </div>
                     </div>
-                    {(user?.uid === story.authorUid || isAdmin) && (
+                    {user?.uid === story.authorUid && (
                       <div className="flex gap-2">
                         <button 
                           onClick={() => { setEditingStory(story); setIsStoryModalOpen(true); }}
@@ -935,42 +935,6 @@ function App() {
                     <social.icon size={20} />
                   </a>
                 ))}
-              </div>
-            </div>
-
-            <div className={`relative p-8 sm:p-10 rounded-[3rem] border overflow-hidden group ${darkMode ? "border-stone-700 bg-stone-800" : "border-amber-500/30 bg-amber-50" } shadow-2xl`}>
-              <div className="absolute top-0 right-0 -mt-8 -mr-8 w-32 h-32 bg-amber-500/10 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-1000"></div>
-              <div className="relative z-10">
-                <p className="text-[10px] font-black text-amber-600 uppercase tracking-[0.4em] mb-6">Project Credits</p>
-                <div className="space-y-6">
-                  <div>
-                    <h4 className={`text-2xl sm:text-3xl font-black mb-2 flex items-center gap-3 ${darkMode ? "text-white" : "text-stone-900"}`}>
-                      Developed by Gopal Patel
-                    </h4>
-                    <p className="text-sm opacity-60 font-medium italic leading-relaxed">
-                      "Building digital solutions that bridge the gap between technology and human compassion."
-                    </p>
-                  </div>
-                  
-                  <div className="h-px w-full bg-stone-200 dark:bg-stone-700"></div>
-
-                  <div className="flex flex-col sm:flex-row items-center gap-6">
-                    <div className="flex-1 space-y-2 text-center sm:text-left">
-                      <span className="text-[9px] font-black text-stone-400 dark:text-stone-500 uppercase tracking-[0.2em] block">Professional Inquiry</span>
-                      <a href="mailto:patelgopal563@gmail.com" className={`text-lg font-black hover:text-amber-500 transition-colors ${darkMode ? "text-white" : "text-stone-900"}`}>
-                        patelgopal563@gmail.com
-                      </a>
-                    </div>
-                    <a 
-                      href="https://gopalpatel.vercel.app/" 
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="bg-stone-900 dark:bg-amber-500 text-white dark:text-stone-900 px-8 py-4 rounded-3xl text-sm font-black hover:scale-105 transition-all active:scale-95 shadow-xl flex items-center gap-2 whitespace-nowrap"
-                    >
-                      Get in Touch <ExternalLink size={16} />
-                    </a>
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -1527,7 +1491,7 @@ const PetCard: React.FC<{
 
   const priorityColors = pet.urgency === "Critical" ? "bg-red-500 text-white" : pet.urgency === "High" ? "bg-orange-500 text-white" : pet.urgency === "Medium" ? "bg-amber-400 text-stone-900" : "bg-green-500 text-white";
 
-  const canEdit = user && (user.uid === pet.authorUid || isAdmin);
+  const canEdit = user && user.uid === pet.authorUid;
 
   const handleShare = async () => {
     const title = `Adopt ${pet.name} - StreetPaws`;
