@@ -95,6 +95,14 @@ enum OperationType {
   WRITE = 'write',
 }
 
+interface AppUser {
+  uid: string;
+  displayName: string;
+  email: string;
+  photoURL?: string;
+  role: string;
+}
+
 interface FirestoreErrorInfo {
   error: string;
   operationType: OperationType;
@@ -319,7 +327,7 @@ const urgencyScore = (u: UrgencyLevel) => {
 // --- Main App Component ---
 
 function App() {
-  const { user, loading: authLoading, isAdmin } = useAuth();
+  const { user, loading: authLoading, isAdmin, logoutAdmin } = useAuth();
   const [pets, setPets] = useState<Pet[]>(INITIAL_PETS);
   const [stories, setStories] = useState<Story[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -336,6 +344,9 @@ function App() {
   const [quoteIndex, setQuoteIndex] = useState(0);
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [showAdminDashboard, setShowAdminDashboard] = useState(false);
+  const [allUsers, setAllUsers] = useState<AppUser[]>([]);
   const [quotaExceeded, setQuotaExceeded] = useState(false);
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
@@ -425,6 +436,20 @@ function App() {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (isAdmin) {
+      console.log("Setting up users listener for admin...");
+      const q = query(collection(db, "users"), limit(100));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const usersData = snapshot.docs.map(doc => ({ ...doc.data(), uid: doc.id } as AppUser));
+        setAllUsers(usersData);
+      }, (error) => {
+        console.error("Users fetch error:", error);
+      });
+      return () => unsubscribe();
+    }
+  }, [isAdmin]);
 
   // fetchPets is now redundant for initial load, but keep it for manual refreshes if needed
   const addToast = (message: string, type: Toast["type"] = "info") => {
@@ -658,52 +683,41 @@ function App() {
           <button onClick={() => setDarkMode(!darkMode)} className={`p-2 rounded-full transition-colors ${darkMode ? "bg-stone-800 text-amber-400" : "bg-stone-100 text-stone-600"}`}>
             {darkMode ? <Sun size={20} /> : <Moon size={20} />}
           </button>
-          {user ? (
-            <div className="flex items-center gap-2 sm:gap-4">
-              <div className="relative">
-                <button 
-                  onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
-                  className="flex items-center justify-center w-10 h-10 rounded-full border-2 border-amber-500 overflow-hidden shrink-0 active:scale-90 transition-transform shadow-lg"
-                >
-                  {user.photoURL ? (
-                    <img src={user.photoURL} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full bg-amber-500 flex items-center justify-center text-xs font-black text-white">
-                      {user.displayName?.charAt(0) || <User size={16} />}
-                    </div>
-                  )}
-                </button>
-                
-                {isUserDropdownOpen && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setIsUserDropdownOpen(false)}></div>
-                    <div className={`absolute top-full right-0 mt-3 w-48 rounded-2xl shadow-2xl border p-2 animate-in fade-in zoom-in-95 duration-200 z-50 ${darkMode ? "bg-stone-800 border-stone-700" : "bg-white border-stone-100"}`}>
-                      <div className="px-3 py-2 border-b border-stone-100 dark:border-stone-700 mb-1">
-                        <p className="text-xs font-black truncate">{user.displayName}</p>
-                        <p className="text-[10px] opacity-50 truncate">{user.email}</p>
-                      </div>
-                      <button 
-                        onClick={() => { logout(); setIsUserDropdownOpen(false); }}
-                        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold text-red-500 hover:bg-red-500/10 transition-colors"
-                      >
-                        <LogOut size={16} /> Logout
-                      </button>
-                    </div>
-                  </>
+
+          <button 
+            onClick={() => {
+              if (!user) {
+                setIsLoginModalOpen(true);
+              } else {
+                setEditingPet(null);
+                setIsModalOpen(true);
+              }
+            }} 
+            className="bg-amber-600 text-white px-4 py-2 sm:px-5 sm:py-2.5 rounded-3xl font-bold text-xs sm:text-sm hover:bg-amber-700 transition-all flex items-center gap-2 shadow-lg active:scale-95"
+          >
+            <Plus size={18} />
+            <span className="hidden xs:inline">List stray</span>
+          </button>
+          
+          <button 
+            onClick={() => setIsLoginModalOpen(true)} 
+            className={`transition-all active:scale-95 flex items-center justify-center ${user ? "p-0.5 rounded-full border-2 border-amber-500 shadow-lg" : "bg-stone-900 text-white px-5 py-2.5 rounded-3xl font-bold text-sm hover:bg-stone-800 shadow-lg"}`}
+          >
+            {user ? (
+              <div className="w-9 h-9 rounded-full overflow-hidden bg-amber-500 flex items-center justify-center text-white font-black text-xs">
+                {user.photoURL ? (
+                  <img src={user.photoURL} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  user.displayName?.charAt(0) || <User size={18} />
                 )}
               </div>
-
-              <button onClick={() => {setEditingPet(null); setIsModalOpen(true);}} className="bg-amber-600 text-white px-4 py-2 sm:px-5 sm:py-2.5 rounded-3xl font-bold text-xs sm:text-sm hover:bg-amber-700 transition-all flex items-center gap-2 shadow-lg active:scale-95">
-                <Plus size={18} />
-                <span className="hidden xs:inline">List stray</span>
-              </button>
-            </div>
-          ) : (
-            <button onClick={loginWithGoogle} className="bg-stone-900 text-white px-5 py-2.5 rounded-3xl font-bold text-sm hover:bg-stone-800 transition-all flex items-center gap-2 shadow-lg active:scale-95">
-              <LogIn size={18} />
-              <span>Login</span>
-            </button>
-          )}
+            ) : (
+              <>
+                <LogIn size={18} className="mr-2" />
+                <span>Login</span>
+              </>
+            )}
+          </button>
         </div>
       </header>
 
@@ -726,7 +740,7 @@ function App() {
                 setIsStoryModalOpen(true);
               } else {
                 addToast("Please login to share a story!", "info");
-                loginWithGoogle();
+                setIsLoginModalOpen(true);
               }
             }} 
             className="bg-stone-900 dark:bg-amber-500 text-white dark:text-stone-900 px-8 py-4 rounded-3xl font-black text-sm sm:text-base shadow-2xl flex items-center gap-2 mx-auto hover:scale-105 transition-all active:scale-95 group"
@@ -868,6 +882,7 @@ function App() {
                   onClick={async () => {
                     if (!user) {
                       addToast("Please login to load sample pets!", "error");
+                      setIsLoginModalOpen(true);
                       return;
                     }
                     await Promise.all(INITIAL_PETS.map(async (p) => {
@@ -951,6 +966,26 @@ function App() {
       </footer>
 
       {/* Modals */}
+      {isLoginModalOpen && (
+        <LoginModal 
+          isOpen={isLoginModalOpen} 
+          onClose={() => setIsLoginModalOpen(false)} 
+          darkMode={darkMode} 
+          addToast={addToast}
+          onSuccess={() => setShowAdminDashboard(true)}
+        />
+      )}
+
+      {showAdminDashboard && (
+        <AdminDashboard 
+          isOpen={showAdminDashboard} 
+          onClose={() => setShowAdminDashboard(false)} 
+          darkMode={darkMode} 
+          users={allUsers}
+          pets={pets}
+        />
+      )}
+
       {isModalOpen && (
         <PetFormModal
           isOpen={isModalOpen}
@@ -1876,6 +1911,264 @@ function ConfirmModal({ isOpen, title, message, onConfirm, onClose, darkMode }: 
     </div>
   );
 }
+
+// --- Login Modal ---
+const LoginModal: React.FC<{ isOpen: boolean; onClose: () => void; darkMode: boolean; addToast: (msg: string, type: any) => void; onSuccess: () => void }> = ({ isOpen, onClose, darkMode, addToast, onSuccess }) => {
+  const [password, setPassword] = useState("");
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const { user, isAdmin, loginAsAdmin, logoutAdmin } = useAuth();
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (loginAsAdmin(password)) {
+      addToast("Admin login successful!", "success");
+      onSuccess();
+      onClose();
+    } else {
+      addToast("Invalid admin credentials.", "error");
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+      <div className={`w-full max-w-sm rounded-[2.5rem] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300 ${darkMode ? "bg-stone-900 border border-stone-800 text-white" : "bg-white text-stone-900"}`}>
+        <div className="bg-amber-500 p-8 text-white relative">
+          <h3 className="text-2xl font-black">
+            {user ? "Your Account" : showAdminLogin ? "Admin Login" : "Welcome Back"}
+          </h3>
+          <p className="text-sm font-medium opacity-80 mt-1">
+            {user ? "Manage your profile" : "StreetPaws Community"}
+          </p>
+          <button onClick={onClose} className="absolute top-6 right-6 p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors text-white">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-8">
+          {user ? (
+            <div className="space-y-6">
+              <div className="flex items-center gap-4 p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-100 dark:border-stone-800">
+                <div className="w-16 h-16 rounded-2xl bg-amber-500 overflow-hidden shadow-lg">
+                  {user.photoURL ? <img src={user.photoURL} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-xl font-black text-white">{user.displayName?.charAt(0)}</div>}
+                </div>
+                <div className="min-w-0">
+                  <p className="font-black truncate">{user.displayName}</p>
+                  <p className="text-xs opacity-60 truncate">{user.email}</p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {isAdmin && (
+                  <button 
+                    onClick={() => { onSuccess(); onClose(); }}
+                    className="w-full py-4 rounded-2xl bg-amber-500 text-stone-900 font-black text-sm hover:bg-amber-600 transition-all flex items-center justify-center gap-3 shadow-lg shadow-amber-500/20"
+                  >
+                    <Grid size={20} />
+                    Community Members
+                  </button>
+                )}
+                
+                <button 
+                  onClick={() => { logout(); logoutAdmin(); onClose(); }}
+                  className={`w-full py-4 rounded-2xl border font-black text-sm transition-all flex items-center justify-center gap-3 ${darkMode ? "border-stone-800 hover:bg-red-500/10 text-red-500" : "border-stone-100 hover:bg-red-50 text-red-500"}`}
+                >
+                  <LogOut size={20} />
+                  Logout
+                </button>
+              </div>
+            </div>
+          ) : !showAdminLogin ? (
+            <div className="space-y-6">
+              <p className="text-sm opacity-60 font-medium leading-relaxed">
+                Join our community to help strays find their forever homes.
+              </p>
+              <button 
+                onClick={() => { loginWithGoogle(); onClose(); }}
+                className="w-full py-4 rounded-2xl bg-stone-900 dark:bg-white text-white dark:text-stone-900 font-black text-sm hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3 shadow-xl"
+              >
+                <LogIn size={20} />
+                Continue with Google
+              </button>
+              
+              <div className="relative py-2">
+                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-stone-100 dark:border-stone-800"></div></div>
+                <div className="relative flex justify-center text-[10px] font-black uppercase tracking-widest"><span className={`px-4 ${darkMode ? "bg-stone-900 text-stone-600" : "bg-white text-stone-400"}`}>Or</span></div>
+              </div>
+              
+              <button 
+                onClick={() => setShowAdminLogin(true)}
+                className={`w-full py-4 rounded-2xl border font-black text-sm transition-all ${darkMode ? "border-stone-800 hover:bg-stone-800 text-stone-400" : "border-stone-100 hover:bg-stone-50 text-stone-600"}`}
+              >
+                Login as Admin
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest mb-2 block opacity-60">Admin Credentials</label>
+                <input 
+                  type="password" 
+                  required 
+                  className={`w-full p-4 rounded-2xl border font-bold text-sm outline-none focus:ring-4 focus:ring-amber-500/20 focus:border-amber-500 ${darkMode ? "bg-stone-800 border-stone-700 text-white" : "bg-stone-50 border-stone-200 text-stone-950"}`}
+                  placeholder="Enter admin password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-3">
+                <button 
+                  type="button"
+                  onClick={() => setShowAdminLogin(false)}
+                  className={`flex-1 py-4 rounded-2xl border font-black text-sm transition-all ${darkMode ? "border-stone-800 hover:bg-stone-800 text-stone-400" : "border-stone-100 hover:bg-stone-50 text-stone-600"}`}
+                >
+                  Back
+                </button>
+                <button type="submit" className="flex-[2] py-4 rounded-2xl bg-amber-500 text-stone-900 font-black text-sm hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/20">
+                  Login
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- Community Members Dashboard ---
+const AdminDashboard: React.FC<{ isOpen: boolean; onClose: () => void; darkMode: boolean; users: AppUser[]; pets: Pet[] }> = ({ isOpen, onClose, darkMode, users, pets }) => {
+  const [selectedUserUid, setSelectedUserUid] = useState<string | null>(null);
+
+  if (!isOpen) return null;
+
+  const selectedUser = users.find(u => u.uid === selectedUserUid);
+  const userPets = pets.filter(p => p.authorUid === selectedUserUid);
+
+  return (
+    <div className="fixed inset-0 z-[150] flex flex-col bg-stone-50 dark:bg-stone-950 animate-in fade-in duration-300 overflow-hidden">
+      <header className={`p-6 border-b flex justify-between items-center shrink-0 ${darkMode ? "bg-stone-900 border-stone-800 text-white" : "bg-white border-stone-200 text-stone-900"}`}>
+        <div className="flex items-center gap-4">
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"><X size={24} /></button>
+          <h2 className="text-2xl font-black">Community Members</h2>
+        </div>
+        {selectedUserUid && (
+          <button 
+            onClick={() => setSelectedUserUid(null)}
+            className="px-6 py-2 rounded-full bg-amber-500 text-stone-900 font-black text-xs uppercase tracking-widest hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/20"
+          >
+            Back to User List
+          </button>
+        )}
+      </header>
+
+      <div className="flex-1 overflow-y-auto p-6 sm:p-10">
+        <div className="max-w-6xl mx-auto">
+          {!selectedUserUid ? (
+            <div className="space-y-8">
+              <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+                <div>
+                  <h3 className={`text-3xl font-black ${darkMode ? "text-white" : "text-stone-900"}`}>Community Members</h3>
+                  <p className="text-sm opacity-50 font-medium">Manage and view activity of all registered users</p>
+                </div>
+                <div className="px-4 py-2 bg-amber-500/10 text-amber-500 rounded-2xl text-[10px] font-black uppercase tracking-widest">
+                  {users.length} Total Users
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {users.map(u => {
+                  const count = pets.filter(p => p.authorUid === u.uid).length;
+                  return (
+                    <button 
+                      key={u.uid}
+                      onClick={() => setSelectedUserUid(u.uid)}
+                      className={`group p-6 rounded-[2.5rem] border text-left transition-all hover:scale-[1.02] active:scale-95 ${darkMode ? "bg-stone-900 border-stone-800 hover:border-amber-500/50" : "bg-white border-stone-200 hover:border-amber-500/50 shadow-sm hover:shadow-xl"}`}
+                    >
+                      <div className="w-16 h-16 rounded-[1.5rem] bg-amber-500 mb-4 overflow-hidden shadow-lg group-hover:rotate-3 transition-transform">
+                        {u.photoURL ? <img src={u.photoURL} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-xl font-black text-white">{u.displayName.charAt(0)}</div>}
+                      </div>
+                      <h4 className={`font-black text-lg truncate ${darkMode ? "text-white" : "text-stone-900"}`}>{u.displayName}</h4>
+                      <p className="text-xs opacity-50 truncate mb-4 font-medium">{u.email}</p>
+                      <div className="flex items-center justify-between">
+                        <span className="px-3 py-1 bg-amber-500/10 text-amber-500 rounded-full text-[9px] font-black uppercase tracking-widest">{count} Listings</span>
+                        <div className="p-2 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-400 group-hover:text-amber-500 transition-colors">
+                          <ExternalLink size={14} />
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            selectedUser && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-12">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-8">
+                  <div className="w-32 h-32 rounded-[2.5rem] bg-amber-500 overflow-hidden shadow-2xl">
+                    {selectedUser.photoURL ? <img src={selectedUser.photoURL} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-4xl font-black text-white">{selectedUser.displayName.charAt(0)}</div>}
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className={`text-4xl font-black ${darkMode ? "text-white" : "text-stone-900"}`}>{selectedUser.displayName}</h3>
+                    <p className="text-xl opacity-60 font-medium">{selectedUser.email}</p>
+                    <div className="flex flex-wrap gap-3 pt-2">
+                      <div className="px-4 py-2 bg-stone-100 dark:bg-stone-800 rounded-2xl text-[10px] font-black uppercase tracking-widest opacity-60">UID: {selectedUser.uid}</div>
+                      <div className="px-4 py-2 bg-blue-500/10 text-blue-500 rounded-2xl text-[10px] font-black uppercase tracking-widest">{userPets.length} Total Contributions</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-8">
+                  <div className="flex items-center gap-4">
+                    <div className="h-px flex-1 bg-stone-200 dark:bg-stone-800"></div>
+                    <h4 className={`text-xl font-black flex items-center gap-2 ${darkMode ? "text-white" : "text-stone-900"}`}>
+                      <PawPrint size={24} className="text-amber-500" /> User's Listings
+                    </h4>
+                    <div className="h-px flex-1 bg-stone-200 dark:bg-stone-800"></div>
+                  </div>
+
+                  {userPets.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      {userPets.map(pet => (
+                        <div key={pet.id} className={`group p-6 rounded-[2.5rem] border flex gap-6 transition-all hover:shadow-2xl ${darkMode ? "bg-stone-900 border-stone-800" : "bg-white border-stone-100 shadow-xl shadow-stone-200/50"}`}>
+                          <div className="w-28 h-28 rounded-3xl overflow-hidden shrink-0 shadow-lg group-hover:scale-105 transition-transform">
+                            <img src={pet.imageUrl} className="w-full h-full object-cover" alt="" />
+                          </div>
+                          <div className="min-w-0 flex-1 flex flex-col justify-center">
+                            <h5 className={`font-black text-xl mb-1 truncate ${darkMode ? "text-white" : "text-stone-900"}`}>{pet.name}</h5>
+                            <div className="flex items-center gap-1 text-xs opacity-50 font-bold mb-4">
+                              <MapPin size={12} /> {pet.location}
+                            </div>
+                            <div className="flex gap-2">
+                              <span className={`text-[9px] font-black uppercase px-3 py-1.5 rounded-xl ${pet.status === 'Available' ? 'bg-green-500/10 text-green-500' : 'bg-stone-500/10 text-stone-500'}`}>
+                                {pet.status}
+                              </span>
+                              <span className={`text-[9px] font-black uppercase px-3 py-1.5 rounded-xl ${pet.urgency === 'Critical' ? 'bg-red-500/10 text-red-500' : 'bg-amber-500/10 text-amber-500'}`}>
+                                {pet.urgency}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className={`py-24 text-center rounded-[3rem] border-4 border-dashed ${darkMode ? "border-stone-800 text-stone-700" : "border-stone-200 text-stone-400"}`}>
+                      <ImageIcon size={48} className="mx-auto mb-4 opacity-20" />
+                      <p className="text-xl font-black">No listings found for this user.</p>
+                      <p className="text-sm font-medium opacity-60">This user hasn't posted any stray sightings yet.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // --- Recommendation Modal ---
 
